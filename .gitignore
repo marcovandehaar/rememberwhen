@@ -13,3 +13,5 @@ $RECYCLE.BIN/
 .playwright-mcp
 .claude
 .agents
+node_modules/
+dist/
