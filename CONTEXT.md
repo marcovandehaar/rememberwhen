@@ -20,6 +20,10 @@ _Avoid_: Main location, Hoofdlocatie, Place, Region
 One photo or one short video belonging to a Chapter. Videos are ordinary members of the sequence, not a special case.
 _Avoid_: Asset, Photo, File
 
+**Story**:
+The playable form of a Memory: its Chapters and Media Items composed into one continuous sequence, moved through at the viewer's own pace. What the app presents once a Destination is chosen.
+_Avoid_: Slideshow, Presentation, Playback, Movie, Highlight reel
+
 **Source Folder**:
 A folder on the NAS pointed at during indexing. Its subfolders are included. One Memory may draw on several.
 _Avoid_: Input directory, Import path
