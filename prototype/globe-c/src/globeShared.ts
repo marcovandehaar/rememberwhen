@@ -17,7 +17,11 @@ export type GlobeInstance = {
   renderer: () => THREE.WebGLRenderer
   controls: () => { autoRotate: boolean; autoRotateSpeed: number; enableDamping: boolean; minDistance: number; maxDistance: number }
   postProcessingComposer: () => EffectComposer
-  pointOfView: (pov: { lat: number; lng: number; altitude: number }, ms?: number) => void
+  pointOfView: {
+    /** getter: the camera where it is now */
+    (): { lat: number; lng: number; altitude: number }
+    (pov: { lat: number; lng: number; altitude?: number }, ms?: number): void
+  }
   lights: () => THREE.Light[]
 }
 

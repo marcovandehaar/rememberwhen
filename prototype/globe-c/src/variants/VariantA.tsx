@@ -33,7 +33,12 @@ export function VariantA({
   }, [])
 
   useEffect(() => {
-    if (selected) ref.current?.pointOfView({ lat: selected.lat, lng: selected.lng, altitude: 0.9 }, 1200)
+    const g = ref.current
+    if (!selected || !g) return
+    // Keep the viewer's zoom level: flying to a pin should move the camera,
+    // not re-frame the globe underneath them.
+    const { altitude } = g.pointOfView()
+    g.pointOfView({ lat: selected.lat, lng: selected.lng, altitude }, 1200)
   }, [selected])
 
   // Fan pins that share a coordinate.
