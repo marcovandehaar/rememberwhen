@@ -24,8 +24,15 @@ export type Destination = {
   cover: string
 }
 
-const RAW: Omit<Destination, 'cover' | 'id'>[] = [
-  { name: 'Zillertal', memory: 'Zillertal 2024', lat: 47.2, lng: 11.8667 },
+type Raw = Omit<Destination, 'cover' | 'id'> & { coverFile?: string }
+
+const RAW: Raw[] = [
+  // REAL — Marco's own trips and cover photos. The files live in
+  // public/covers/, which is gitignored: this repo is public.
+  { name: 'Zillertal', memory: 'Wintersport Zillertal 2024', lat: 47.2, lng: 11.8667, coverFile: '/covers/zillertal-2024.jpg' },
+  { name: 'Allgäu', memory: 'Zomervakantie Allgäu 2025', lat: 47.55, lng: 10.28, coverFile: '/covers/allgau-2025.jpg' },
+
+  // PLACEHOLDER from here down — invented trips, generated gradient covers.
   { name: 'Zillertal', memory: 'Zillertal 2026', lat: 47.2, lng: 11.8667 },
   { name: 'Legoland Billund', memory: 'Denemarken 2024', lat: 55.735, lng: 9.125 },
   { name: 'Aarhus', memory: 'Denemarken 2024', lat: 56.1629, lng: 10.2039 },
@@ -83,10 +90,10 @@ function generateCover(name: string, size = 128): string {
   return c.toDataURL('image/png')
 }
 
-export const DESTINATIONS: Destination[] = RAW.map((d, i) => ({
+export const DESTINATIONS: Destination[] = RAW.map(({ coverFile, ...d }, i) => ({
   ...d,
   id: `${d.memory}-${i}`,
-  cover: generateCover(d.memory),
+  cover: coverFile ?? generateCover(d.memory),
 }))
 
 /** Groups pins that sit on (near enough) the same coordinate. */
