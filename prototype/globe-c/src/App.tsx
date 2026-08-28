@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { DESTINATIONS, type Destination } from './destinations'
 import { DeviceHud } from './DeviceHud'
+import { DebugPanel } from './DebugPanel'
+import { DEFAULTS, settingsKey, type Settings } from './settings'
 import { PrototypeSwitcher, type VariantKey } from './PrototypeSwitcher'
 import { VariantA, NAME as NAME_A } from './variants/VariantA'
 import { VariantB, NAME as NAME_B } from './variants/VariantB'
@@ -20,6 +22,7 @@ function readVariant(): VariantKey {
 export function App() {
   const [variant, setVariant] = useState<VariantKey>(readVariant)
   const [selected, setSelected] = useState<Destination | null>(null)
+  const [settings, setSettings] = useState<Settings>(DEFAULTS)
 
   const change = useCallback((v: VariantKey) => {
     const url = new URL(location.href)
@@ -35,16 +38,23 @@ export function App() {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
+  // Remount on variant OR settings change: each owns its own render pipeline,
+  // and the bloom/MSAA/DPR toggles change how that pipeline is built.
+  const k = `${variant}-${settingsKey(settings)}`
+  const props = { data: DESTINATIONS, selected, onSelect: setSelected, settings }
+
   return (
     <>
-      {/* Remount on variant change: each variant owns its own globe instance. */}
-      {variant === 'A' && <VariantA key="A" data={DESTINATIONS} selected={selected} onSelect={setSelected} />}
-      {variant === 'B' && <VariantB key="B" data={DESTINATIONS} selected={selected} onSelect={setSelected} />}
-      {variant === 'C' && <VariantC key="C" data={DESTINATIONS} selected={selected} onSelect={setSelected} />}
+      {variant === 'A' && <VariantA key={k} {...props} />}
+      {variant === 'B' && <VariantB key={k} {...props} />}
+      {variant === 'C' && <VariantC key={k} {...props} />}
 
-      <DeviceHud />
+      <DeviceHud resetKey={k} />
       {!import.meta.env.PROD && (
-        <PrototypeSwitcher variants={VARIANTS} current={variant} names={NAMES} onChange={change} />
+        <>
+          <DebugPanel settings={settings} onChange={setSettings} />
+          <PrototypeSwitcher variants={VARIANTS} current={variant} names={NAMES} onChange={change} />
+        </>
       )}
     </>
   )

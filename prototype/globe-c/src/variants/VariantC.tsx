@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import Globe from 'react-globe.gl'
 import type { Destination } from '../destinations'
+import type { Settings } from '../settings'
 import { addBloom, sampleLandPoints, type GlobeInstance } from '../globeShared'
 
 export const NAME = 'Donker puntenraster'
@@ -17,8 +18,8 @@ export const NAME = 'Donker puntenraster'
 type Group = { key: string; lat: number; lng: number; items: Destination[] }
 
 export function VariantC({
-  data, selected, onSelect,
-}: { data: Destination[]; selected: Destination | null; onSelect: (d: Destination) => void }) {
+  data, selected, onSelect, settings,
+}: { data: Destination[]; selected: Destination | null; onSelect: (d: Destination) => void; settings: Settings }) {
   const ref = useRef<GlobeInstance | null>(null)
   const [land, setLand] = useState<{ lat: number; lng: number }[]>([])
   const [chooser, setChooser] = useState<Group | null>(null)
@@ -43,9 +44,10 @@ export function VariantC({
     if (!g) return
     // Threshold matters more than strength here: too low and the land dots bloom
     // too, and ~20 European markers merge into one white blob.
-    addBloom(g, { strength: 0.75, radius: 0.42, threshold: 0.62 })
+    if (settings.bloom) addBloom(g, { strength: 0.75, radius: 0.42, threshold: 0.62 }, settings.msaa)
+    g.renderer().setPixelRatio(settings.fullDpr ? window.devicePixelRatio : 1)
     const c = g.controls()
-    c.autoRotate = true
+    c.autoRotate = settings.autoRotate
     c.autoRotateSpeed = 0.22
     c.enableDamping = true
     c.minDistance = 140

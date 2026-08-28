@@ -35,6 +35,7 @@ export type GlobeInstance = {
 export function addBloom(
   g: GlobeInstance,
   { strength = 1.1, radius = 0.55, threshold = 0.12 } = {},
+  msaa = true,
 ) {
   const composer = g.postProcessingComposer()
   const size = g.renderer().getSize(new THREE.Vector2())
@@ -45,9 +46,14 @@ export function addBloom(
   // to grey and fogs the whole frame. Left out deliberately; this is a real
   // trap in globe.gl's composer, not a three.js bug.
 
-  for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
-    rt.samples = 4
-    rt.dispose()
+  // Prime suspect for BOTH iPad symptoms (issue #7): a multisampled
+  // HalfFloatType target may be resolving expensively on Apple GPU, and may
+  // be what lifts the background. Toggle it on the device to find out.
+  if (msaa) {
+    for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+      rt.samples = 4
+      rt.dispose()
+    }
   }
   return bloom
 }

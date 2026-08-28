@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import Globe from 'react-globe.gl'
 import type { Destination } from '../destinations'
+import type { Settings } from '../settings'
 import { addBloom, TEX, type GlobeInstance } from '../globeShared'
 
 export const NAME = 'Fotografisch nacht'
@@ -9,16 +10,17 @@ export const NAME = 'Fotografisch nacht'
 // Coincident pins: fanned apart in screen space so both are always tappable.
 
 export function VariantA({
-  data, selected, onSelect,
-}: { data: Destination[]; selected: Destination | null; onSelect: (d: Destination) => void }) {
+  data, selected, onSelect, settings,
+}: { data: Destination[]; selected: Destination | null; onSelect: (d: Destination) => void; settings: Settings }) {
   const ref = useRef<GlobeInstance | null>(null)
 
   useEffect(() => {
     const g = ref.current
     if (!g) return
-    addBloom(g, { strength: 0.85, radius: 0.6, threshold: 0.2 })
+    if (settings.bloom) addBloom(g, { strength: 0.85, radius: 0.6, threshold: 0.2 }, settings.msaa)
+    g.renderer().setPixelRatio(settings.fullDpr ? window.devicePixelRatio : 1)
     const c = g.controls()
-    c.autoRotate = true
+    c.autoRotate = settings.autoRotate
     c.autoRotateSpeed = 0.28
     c.enableDamping = true
     c.minDistance = 130

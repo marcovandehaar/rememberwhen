@@ -45,11 +45,15 @@ function textureCost(px: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
-export function DeviceHud() {
+export function DeviceHud({ resetKey }: { resetKey?: string }) {
   const [caps] = useState(readCaps)
   const [fps, setFps] = useState(0)
   const [low, setLow] = useState(Infinity)
   const [open, setOpen] = useState(true)
+
+  // The running minimum is only meaningful per configuration, so a toggle
+  // in the debug panel has to clear it.
+  useEffect(() => setLow(Infinity), [resetKey])
 
   useEffect(() => {
     let frames = 0

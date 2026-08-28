@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import Globe from 'react-globe.gl'
 import type { Destination } from '../destinations'
+import type { Settings } from '../settings'
 import { matteGlobeMaterial, type GlobeInstance } from '../globeShared'
 
 export const NAME = 'Mat papier'
@@ -11,16 +12,17 @@ export const NAME = 'Mat papier'
 // Coincident pins: deliberately left colliding, so the problem is visible.
 
 export function VariantB({
-  data, selected, onSelect,
-}: { data: Destination[]; selected: Destination | null; onSelect: (d: Destination) => void }) {
+  data, selected, onSelect, settings,
+}: { data: Destination[]; selected: Destination | null; onSelect: (d: Destination) => void; settings: Settings }) {
   const ref = useRef<GlobeInstance | null>(null)
   const material = useMemo(() => matteGlobeMaterial('#e8e2d4', '#9fb2bd'), [])
 
   useEffect(() => {
     const g = ref.current
     if (!g) return
+    g.renderer().setPixelRatio(settings.fullDpr ? window.devicePixelRatio : 1)
     const c = g.controls()
-    c.autoRotate = false
+    c.autoRotate = settings.autoRotate
     c.enableDamping = true
     c.minDistance = 150
     c.maxDistance = 460
