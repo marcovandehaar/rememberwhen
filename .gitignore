@@ -18,3 +18,4 @@ dist/
 
 # Personal photos: this repo is public. Covers stay on the machine.
 prototype/globe-c/public/covers/
+prototype/globe-c/.vite/
