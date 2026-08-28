@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 
 // Deliberately ugly and obviously not part of the design being judged.
 
-export type VariantKey = 'A' | 'B' | 'C'
+export type VariantKey = 'A' | 'B' | 'C' | 'D'
 
 export function PrototypeSwitcher({
   variants, current, names, onChange,

@@ -7,12 +7,13 @@ import { PrototypeSwitcher, type VariantKey } from './PrototypeSwitcher'
 import { VariantA, NAME as NAME_A } from './variants/VariantA'
 import { VariantB, NAME as NAME_B } from './variants/VariantB'
 import { VariantC, NAME as NAME_C } from './variants/VariantC'
+import { VariantD, NAME as NAME_D } from './variants/VariantD'
 
 // Prototype for issue #7: three looks of globe.gl pushed past its defaults,
 // switchable via ?variant=. Throwaway code — no tests, no error handling.
 
-const VARIANTS: VariantKey[] = ['A', 'B', 'C']
-const NAMES: Record<VariantKey, string> = { A: NAME_A, B: NAME_B, C: NAME_C }
+const VARIANTS: VariantKey[] = ['A', 'B', 'C', 'D']
+const NAMES: Record<VariantKey, string> = { A: NAME_A, B: NAME_B, C: NAME_C, D: NAME_D }
 
 function readVariant(): VariantKey {
   const v = new URLSearchParams(location.search).get('variant')?.toUpperCase()
@@ -48,6 +49,7 @@ export function App() {
       {variant === 'A' && <VariantA key={k} {...props} />}
       {variant === 'B' && <VariantB key={k} {...props} />}
       {variant === 'C' && <VariantC key={k} {...props} />}
+      {variant === 'D' && <VariantD key={k} {...props} />}
 
       <DeviceHud resetKey={k} />
       {!import.meta.env.PROD && (

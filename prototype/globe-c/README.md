@@ -11,6 +11,7 @@ the arrows in the floating bar, or the ← → keys.
 | **A** | Fotografisch nacht | The earth is a photograph; pins are the cover photos themselves, glowing. Coincident pins fan apart. |
 | **B** | Mat papier | No photography at all — a two-tone globe from the land/sea mask, flat light, light background. Names always readable, cover in a panel. Coincident pins deliberately left colliding, so the problem is visible. |
 | **C** | Donker puntenraster | No earth texture; land is a dot matrix. Pins are real `Object3D`s, hot enough for bloom. One marker per coordinate with a chooser when it holds more than one Memory. |
+| **D** | Zelfgebouwd (= A) | The same look as A, hand-written on three.js without globe.gl. Our own easing curve, our own colour management, 241 KB gzipped against 553. Exists to settle "library or bespoke" by looking rather than by arguing. |
 
 All three use `showAtmosphere(false)`, a custom `globeMaterial()` where relevant,
 `pointOfView(..., 1200)` for the rotate-and-zoom, and (A and C) one bloom pass on
