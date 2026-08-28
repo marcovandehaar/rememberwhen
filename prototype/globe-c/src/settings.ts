@@ -17,7 +17,14 @@ export type Settings = {
 
 // Static by default: Marco wants the globe to hold still, both at open and
 // after a pin's camera move. Rotation is a toggle, not the resting state.
-export const DEFAULTS: Settings = { bloom: true, msaa: true, fullDpr: true, autoRotate: false }
+//
+// Bloom off by default, decided on the device (issue #7). It turned out to
+// cause BOTH open problems: it is two thirds of the framerate on a 2019 iPad,
+// and it is what washes the background from near-black to light purple —
+// globe.gl's composer does no colour management, so the extra pass lifts every
+// black. With bloom off the background is correct and the framerate triples.
+// In this view the glow adds little, so the trade is easy.
+export const DEFAULTS: Settings = { bloom: false, msaa: true, fullDpr: true, autoRotate: false }
 
 /** Remount key — any change has to rebuild the globe's render pipeline. */
 export function settingsKey(s: Settings): string {

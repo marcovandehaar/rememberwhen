@@ -2,8 +2,8 @@ import { useState } from 'react'
 import type { Settings } from './settings'
 
 const ROWS: { key: keyof Settings; label: string; hint: string }[] = [
-  { key: 'bloom', label: 'bloom', hint: 'kost ~2/3 van de fps' },
-  { key: 'msaa', label: 'msaa x4', hint: 'samples op composer' },
+  { key: 'bloom', label: 'bloom', hint: 'kost fps + wast achtergrond uit' },
+  { key: 'msaa', label: 'msaa x4', hint: 'alleen zinvol met bloom' },
   { key: 'fullDpr', label: 'dpr 2', hint: 'uit = dpr 1' },
   { key: 'autoRotate', label: 'draaien', hint: 'aan = stotter zichtbaar' },
 ]
@@ -50,6 +50,8 @@ export function DebugPanel({
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0',
                 cursor: 'pointer', minWidth: 158,
+                // msaa only does anything inside the bloom branch.
+                opacity: key === 'msaa' && !settings.bloom ? 0.4 : 1,
               }}
             >
               <span
