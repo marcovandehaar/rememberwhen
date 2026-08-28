@@ -4,6 +4,11 @@ import type { Destination } from '../destinations'
 import type { Settings } from '../settings'
 import { matteGlobeMaterial, type GlobeInstance } from '../globeShared'
 
+// Opening frame: Europe fills the view, because most Memories are there.
+// Trips further afield (US, Canada, Vietnam) sit past the limb and need a
+// drag to reach — a real consequence of this framing (issue #7).
+const HOME = { lat: 47, lng: 9, altitude: 0.78 }
+
 export const NAME = 'Mat papier'
 
 // No photography at all: a two-tone globe from the land/sea mask, flat light,
@@ -36,7 +41,7 @@ export function VariantB({
     <>
       <Globe
         ref={ref as never}
-      onGlobeReady={() => ref.current?.pointOfView({ lat: 48, lng: 9, altitude: 1.35 }, 0)}
+      onGlobeReady={() => ref.current?.pointOfView(HOME, 0)}
         globeMaterial={material as never}
         backgroundColor="#f4f1ea"
         showAtmosphere={false}

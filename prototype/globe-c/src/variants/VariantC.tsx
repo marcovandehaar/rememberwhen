@@ -5,6 +5,11 @@ import type { Destination } from '../destinations'
 import type { Settings } from '../settings'
 import { addBloom, sampleLandPoints, type GlobeInstance } from '../globeShared'
 
+// Opening frame: Europe fills the view, because most Memories are there.
+// Trips further afield (US, Canada, Vietnam) sit past the limb and need a
+// drag to reach — a real consequence of this framing (issue #7).
+const HOME = { lat: 47, lng: 9, altitude: 0.78 }
+
 export const NAME = 'Donker puntenraster'
 
 // No earth texture at all — the land is a dot matrix sampled from the mask,
@@ -62,7 +67,7 @@ export function VariantC({
     <>
       <Globe
         ref={ref as never}
-      onGlobeReady={() => ref.current?.pointOfView({ lat: 48, lng: 9, altitude: 1.35 }, 0)}
+      onGlobeReady={() => ref.current?.pointOfView(HOME, 0)}
         backgroundColor="#000208"
         showGlobe={true}
         showAtmosphere={false}

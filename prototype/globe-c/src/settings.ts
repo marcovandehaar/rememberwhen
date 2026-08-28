@@ -15,7 +15,9 @@ export type Settings = {
   autoRotate: boolean
 }
 
-export const DEFAULTS: Settings = { bloom: true, msaa: true, fullDpr: true, autoRotate: true }
+// Static by default: Marco wants the globe to hold still, both at open and
+// after a pin's camera move. Rotation is a toggle, not the resting state.
+export const DEFAULTS: Settings = { bloom: true, msaa: true, fullDpr: true, autoRotate: false }
 
 /** Remount key — any change has to rebuild the globe's render pipeline. */
 export function settingsKey(s: Settings): string {
