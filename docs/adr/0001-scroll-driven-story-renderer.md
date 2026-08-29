@@ -18,3 +18,31 @@ Note that `docs/inception-prompt.md` says a Memory plays automatically. That pre
 - Video remains an ordinary member of the sequence, muted and autoplaying while in view, per `CONTEXT.md`. Tapping is for size and sound, not for starting.
 
 Full reasoning: [issue #12](https://github.com/marcovandehaar/rememberwhen/issues/12).
+
+---
+
+## Amendment, 2026-08-29: the CSS path is an optimisation, not the foundation
+
+This ADR leant on the choreography being declarative CSS with no JavaScript in
+the animation loop, and cited Safari 26.0 for it. That is still the best path,
+but it turned out not to be load-bearing, and the record should not imply
+otherwise.
+
+The prototype for [issue #6](https://github.com/marcovandehaar/rememberwhen/issues/6)
+ran on the household's actual iPad — a 2019 model, whose iPadOS tops out below
+Safari 26. It reports `scroll-timeline: NO` and `animation-range: NO`, and the
+CSS-only renderer shows a black screen there: every shot stays at its starting
+opacity.
+
+A fallback that interpolates the same curves by hand in a `requestAnimationFrame`
+loop runs at **55-60 fps on that same device**. So the renderer works on current
+hardware; newer hardware makes it cheaper, not possible.
+
+**What this changes:** v1 must ship both paths and pick at runtime, and the
+choice of scroll as the timeline no longer depends on a Safari version. What it
+does not change is the decision itself — the verdict on the device was that
+scrolling feels like reliving. The strongest reason turned out to be one nobody
+designed: **iPadOS momentum scrolling becomes the story's easing curve**. Flick
+it and it coasts to rest with the Ken Burns move still running. A time-driven
+autoplay renderer cannot do that, because there the clock belongs to the app
+rather than to the finger.
