@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { HAS_SCROLL_TIMELINE } from './variants/VariantA'
 
 // The facts issue #6 says to settle while we are on the device, because none
 // of them can be read out of documentation.
@@ -31,6 +32,7 @@ export function DeviceHud() {
   const [low, setLow] = useState(Infinity)
   const [playing, setPlaying] = useState(0)
   const [open, setOpen] = useState(true)
+  const mode = HAS_SCROLL_TIMELINE ? 'css' : 'js'
 
   useEffect(() => {
     let frames = 0
@@ -84,6 +86,9 @@ export function DeviceHud() {
       </div>
       {open && (
         <div style={{ marginTop: 6, opacity: 0.9 }}>
+          <div style={{ color: mode === 'css' ? '#4ade80' : '#fbbf24', fontWeight: 700 }}>
+            modus: {mode === 'css' ? 'css (0 js)' : 'js fallback'}
+          </div>
           <div>scroll-timeline: {caps.scrollTimeline ? 'yes' : 'NO'}</div>
           <div>animation-range: {caps.animationRange ? 'yes' : 'NO'}</div>
           <div>view transitions: {caps.viewTransition ? 'yes' : 'no'}</div>

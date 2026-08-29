@@ -93,13 +93,33 @@ export function beats(): Beat[] {
  * decision (#12). Alternating direction so consecutive shots do not drift the
  * same way, slight zoom in, and portraits pan vertically where landscapes pan
  * horizontally, because that is where their spare pixels are.
+ *
+ * Returned as numbers rather than CSS strings, because the same values have to
+ * drive two paths: a generated stylesheet where the platform has scroll-driven
+ * animations, and a hand-interpolated one where it does not.
  */
-export function kenBurns(b: Beat): { from: string; to: string } {
+export type KenBurns = { x0: number; y0: number; s0: number; x1: number; y1: number; s1: number }
+
+export function kenBurns(b: Beat): KenBurns {
   const dir = b.i % 2 === 0 ? 1 : -1
-  const pan = b.item.portrait ? `0% ${dir * 4}%` : `${dir * 5}% 0%`
-  const back = b.item.portrait ? `0% ${-dir * 3}%` : `${-dir * 4}% 0%`
-  return {
-    from: `translate(${back}) scale(1.06)`,
-    to: `translate(${pan}) scale(1.16)`,
+  if (b.item.portrait) {
+    return { x0: 0, y0: -dir * 3, s0: 1.06, x1: 0, y1: dir * 4, s1: 1.16 }
   }
+  return { x0: -dir * 4, y0: 0, s0: 1.06, x1: dir * 5, y1: 0, s1: 1.16 }
+}
+
+export function transformAt(kb: KenBurns, p: number): string {
+  const x = kb.x0 + (kb.x1 - kb.x0) * p
+  const y = kb.y0 + (kb.y1 - kb.y0) * p
+  const s = kb.s0 + (kb.s1 - kb.s0) * p
+  return `translate(${x.toFixed(3)}%, ${y.toFixed(3)}%) scale(${s.toFixed(4)})`
+}
+
+/** Opacity envelope: hold in the middle, cross-dissolve at the edges. */
+export function opacityAt(p: number, first: boolean, last: boolean): number {
+  const IN = 0.14
+  const OUT = 0.86
+  if (p < IN) return first ? 1 : p / IN
+  if (p > OUT) return last ? 1 : (1 - p) / (1 - OUT)
+  return 1
 }
