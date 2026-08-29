@@ -11,7 +11,7 @@
 # moet in ~/.ssh/authorized_keys op de NAS staan.
 
 param(
-  [string]$NasUser  = 'marco',
+  [string]$NasUser  = 'vandehaar',
   [string]$NasHost  = '192.168.0.137',
   [string]$WebRoot  = '/volume1/web/spike',
   [string]$KeyFile  = "$env:USERPROFILE\.ssh\rememberwhen_nas_ed25519",
@@ -24,6 +24,11 @@ $ErrorActionPreference = 'Stop'
 $target = "$NasUser@$NasHost"
 $ssh    = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new')
 
+# -O dwingt het oude scp-protocol af. OpenSSH 9 gebruikt standaard SFTP, en dat
+# subsysteem staat op deze DSM uit: je krijgt dan "dest open ... No such file or
+# directory" op een map die aantoonbaar bestaat.
+$scp    = $ssh + '-O'
+
 function Invoke-Nas([string]$cmd) { & ssh @ssh $target $cmd }
 
 Write-Host "== Mappen aanmaken op $target ==" -ForegroundColor Cyan
@@ -32,7 +37,7 @@ Invoke-Nas "mkdir -p '$WebRoot/media'"
 Write-Host "== Bundel kopieren ==" -ForegroundColor Cyan
 $bundle = 'index.html', 'spike.js', 'sw.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png', 'canary.png'
 foreach ($f in $bundle) {
-  & scp @ssh (Join-Path $PSScriptRoot $f) "${target}:$WebRoot/$f"
+  & scp @scp (Join-Path $PSScriptRoot $f) "${target}:$WebRoot/$f"
 }
 
 Write-Host "== Media-fixtures kopieren ==" -ForegroundColor Cyan
@@ -40,8 +45,8 @@ $photo = Join-Path $MediaDir $PhotoSrc
 $clip  = Join-Path $MediaDir $ClipSrc
 if (-not (Test-Path $photo)) { throw "Foto niet gevonden: $photo" }
 if (-not (Test-Path $clip))  { throw "Clip niet gevonden: $clip" }
-& scp @ssh $photo "${target}:$WebRoot/media/photo.jpg"
-& scp @ssh $clip  "${target}:$WebRoot/media/clip.mov"
+& scp @scp $photo "${target}:$WebRoot/media/photo.jpg"
+& scp @scp $clip  "${target}:$WebRoot/media/clip.mov"
 Invoke-Nas "printf 'canary %s\n' `$(date -u +%FT%TZ) > '$WebRoot/media/canary.txt'"
 
 # Web Station serveert als de groep 'http'. Zonder leesrecht krijg je een

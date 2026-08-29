@@ -10,6 +10,10 @@ const Q = new URLSearchParams(location.search);
 const NAS_HTTPS = Q.get('nas') || 'https://nas.vandehaar.dev';
 const NAS_CORS = Q.get('cors') || 'https://media.vandehaar.dev';
 const NAS_HTTP = Q.get('http') || 'http://192.168.0.137';
+
+/* Configuratie A (de bundel staat op de NAS) of B (de bundel staat op een
+   publieke origin). Drie probes betekenen alleen iets in geval B. */
+const SAME_ORIGIN = location.origin === NAS_HTTPS;
 const PHOTO = '/spike/media/photo.jpg';
 const CLIP = '/spike/media/clip.mov';
 const TXT = '/spike/media/canary.txt';
@@ -236,11 +240,18 @@ async function runAll() {
   await probe('fetch-nocors', 'fetch(no-cors) naar nas.vandehaar.dev', async () => {
     const r = await fetchProbe(bust(NAS_HTTPS + PHOTO), { mode: 'no-cors' });
     if (!r.ok) return { status: 'fail', ms: r.ms, detail: r.error };
-    return { status: r.type === 'opaque' ? 'ok' : 'warn', ms: r.ms, detail: 'type=' + r.type + ' status=' + r.status };
+    // Same-origin hoort 'basic' te geven, cross-origin 'opaque'. Beide goed.
+    const verwacht = SAME_ORIGIN ? 'basic' : 'opaque';
+    return {
+      status: r.type === verwacht ? 'ok' : 'warn',
+      ms: r.ms,
+      detail: 'type=' + r.type + ' status=' + r.status + ' (verwacht: ' + verwacht + ')',
+    };
   });
 
   /* De kale Web Station-origin hoort géén ACAO te sturen. Dat is de nulmeting voor configuratie 4. */
   await probe('fetch-cors-plain', 'fetch(cors) naar nas.vandehaar.dev — hoort te falen', async () => {
+    if (SAME_ORIGIN) return { status: 'skip', detail: 'n.v.t. — de pagina staat op deze origin' };
     const r = await fetchProbe(bust(NAS_HTTPS + TXT));
     if (!r.ok) return { status: 'ok', ms: r.ms, detail: 'geweigerd zoals verwacht — ' + r.error };
     return {
@@ -313,12 +324,15 @@ async function runAll() {
     };
   });
 
-  /* Doorvoer wil echte bytes, en die krijg je alleen van een CORS-origin:
-     een opaque response lost op zodra de headers binnen zijn, niet het lijf. */
+  /* Doorvoer wil echte bytes, en die krijg je niet uit een opaque response:
+     die lost op zodra de headers binnen zijn, niet het lijf. Draait de pagina
+     op de NAS zelf, dan is de clip same-origin en is er niets nodig; anders
+     moet het over de CORS-origin. */
   await probe('throughput', 'Doorvoer: de 20 MB clip lezen van de NAS', async () => {
+    const sameOrigin = location.origin === NAS_HTTPS;
     const t0 = performance.now();
-    const r = await fetchProbe(bust(NAS_CORS + CLIP));
-    if (!r.ok) return { status: 'skip', detail: 'geen CORS-origin beschikbaar — ' + r.error };
+    const r = await fetchProbe(bust((sameOrigin ? '' : NAS_CORS) + CLIP));
+    if (!r.ok) return { status: 'skip', detail: 'bytes niet leesbaar — ' + r.error };
     const buf = await r.res.arrayBuffer();
     const ms = performance.now() - t0;
     const mb = buf.byteLength / 1048576;
@@ -355,6 +369,9 @@ async function runAll() {
   });
 
   await probe('sw-cache-addall', 'cache.addAll() van dezelfde URL — hoort te weigeren', async () => {
+    // addAll weigert alleen een *opaque* response. Same-origin is niet opaque,
+    // dus daar hoort hij te slagen en zegt de probe niets over de research.
+    if (SAME_ORIGIN) return { status: 'skip', detail: 'n.v.t. — same-origin levert geen opaque response' };
     const cache = await caches.open('spike-' + RUN);
     try {
       await cache.addAll([bust(NAS_HTTPS + PHOTO)]);

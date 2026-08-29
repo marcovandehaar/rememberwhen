@@ -37,7 +37,7 @@ probe die er is.
 | NAS, Web Station | `https://nas.vandehaar.dev` | de bundel voor configuratie A, en in álle configuraties de media |
 | NAS, reverse proxy | `https://media.vandehaar.dev` | dezelfde bestanden, mét CORS-headers (configuratie C) |
 | NAS, poort 80 | `http://192.168.0.137` | de controle: mixed content (configuratie E) |
-| Azure Static Web App | `https://<naam>.azurestaticapps.net` | de bundel voor configuratie B |
+| Azure Static Web App | `https://gentle-cliff-00b8a7c03.7.azurestaticapps.net` | de bundel voor configuratie B |
 
 De media-fixtures staan in `/volume1/web/spike/media/` op de NAS: `photo.jpg` (echte foto, ~510 KB),
 `clip.mov` (echte iPhone-clip, ~20 MB — het geval dat de kaart als open punt noemt) en `canary.txt`.
@@ -47,11 +47,36 @@ repo is publiek.
 ## Uitrollen
 
 ```powershell
-# eenmalig: de publieke sleutel op de NAS zetten (zie het handoff-document)
 .\deploy-nas.ps1                       # bundel + media -> /volume1/web/spike/
-.\deploy-azure.ps1 -Create             # eerste keer: maakt de resource aan
-.\deploy-azure.ps1                     # daarna: alleen bijwerken
+.\deploy-azure.ps1                     # bundel -> de Static Web App
 ```
+
+Beide zijn uitgevoerd; dit is alleen nog nodig als de bundel wijzigt. Twee dingen zaten onderweg in
+de weg, en staan als commentaar in de scripts zodat ze niet opnieuw uitgezocht hoeven te worden:
+
+- **`scp` moet `-O`.** OpenSSH 9 gebruikt standaard SFTP, en dat subsysteem staat op deze DSM uit.
+  Je krijgt dan `dest open ... No such file or directory` op een map die aantoonbaar bestaat.
+- **`swa deploy` van de CLI faalt** met `deployment binary exited with code 1` en geen verdere
+  melding, terwijl de `StaticSitesClient.exe` die hij eronder gebruikt het prima doet. Het script
+  gebruikt de CLI daarom alleen nog om die binary op te halen.
+
+## Wat er in Chrome al gemeten is
+
+De bundel is op beide origins in Chrome 152 gedraaid, om zeker te weten dat een falende probe iets
+over het toestel zegt en niet over de harness. Drie dingen kwamen daaruit die de iPad-sessie sturen:
+
+- **Configuratie A werkt volledig, en de DS120j haalt 25,4 MB/s (203 Mbit/s)** op de 20 MB-clip.
+  Video: metadata in 67 ms, 1920x1080, speelt en zoekt.
+- **Configuratie B werd door Chrome geblokkeerd tot er een permissie was.** De eerste aanvraag naar
+  `nas.vandehaar.dev` liep 20 seconden vast, de tweede 305 seconden. Dat is Local Network Access,
+  dat sinds Chrome 141 leeft. Ná de permissie werkte niet alleen de HTTPS-aanvraag, maar **ook plain
+  HTTP naar `192.168.0.137`** — precies wat de spec zegt: de permissie ontspant ook mixed content.
+  Op iPadOS bestaat LNA niet, dus daar hoort dit gewoon te werken; maar dit is de vorm van de
+  toekomst zodra WebKit volgt.
+- **De service worker ziet drie video-aanvragen, niet één**: `bytes=0-`, dan `bytes=19922944-`, dan
+  `bytes=32768-`. Die tweede is de staart van het bestand. Een `.mov` van een iPhone heeft zijn index
+  aan het eind staan, dus de speler moet twee keer heen en weer voordat hij kan beginnen. Dat is een
+  feit voor de derivatenbeslissing van de `Indexer`, niet voor deze spike — maar het is nu gemeten.
 
 ## Het protocol op de iPad
 
@@ -104,7 +129,7 @@ al mat.
 Wegwerpspul. Na het ticket:
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\rememberwhen_nas_ed25519 marco@192.168.0.137 "rm -rf /volume1/web/spike"
+ssh -i $env:USERPROFILE\.ssh\rememberwhen_nas_ed25519 vandehaar@192.168.0.137 "rm -rf /volume1/web/spike"
 az group delete --name rg-rememberwhen-spike --yes
 ```
 
