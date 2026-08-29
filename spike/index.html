@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>rememberwhen media spike</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="spike">
+<style>
+  :root { color-scheme: dark; --ok:#3ddc84; --bad:#ff6b6b; --warn:#ffd166; --dim:#8b949e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0d10; color:#e6edf3; font:15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+         padding: env(safe-area-inset-top) 16px 64px; -webkit-text-size-adjust:100%; }
+  h1 { font-size:19px; margin:20px 0 4px; }
+  h2 { font-size:15px; margin:28px 0 8px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; font-weight:600; }
+  .sub { color:var(--dim); font-size:13px; margin:0 0 16px; }
+  .bar { position:sticky; top:0; background:#0b0d10ee; backdrop-filter:blur(8px); padding:12px 0; z-index:5;
+         display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #21262d; }
+  button { font:600 15px/1 -apple-system, system-ui, sans-serif; padding:12px 16px; border-radius:10px; border:1px solid #30363d;
+           background:#161b22; color:#e6edf3; -webkit-appearance:none; touch-action:manipulation; }
+  button.primary { background:#1f6feb; border-color:#1f6feb; }
+  button:disabled { opacity:.45; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:7px 6px; border-bottom:1px solid #21262d; vertical-align:top; }
+  td.s { width:22px; text-align:center; font-size:14px; }
+  td.n { width:38%; font-weight:600; }
+  td.d { color:var(--dim); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; word-break:break-word; }
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  dl { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:13px; margin:0; }
+  dt { color:var(--dim); } dd { margin:0; font-family:ui-monospace,Menlo,monospace; font-size:12px; word-break:break-all; }
+  label { display:block; font-size:13px; color:var(--dim); margin:12px 0 4px; }
+  input[type=text], textarea { width:100%; background:#0d1117; color:#e6edf3; border:1px solid #30363d; border-radius:8px;
+                               padding:10px; font:12px/1.4 ui-monospace, Menlo, monospace; }
+  textarea { height:220px; }
+  .stage { position:absolute; left:-10000px; top:0; width:1px; height:1px; overflow:hidden; }
+  .note { background:#161b22; border:1px solid #30363d; border-left:3px solid var(--warn); border-radius:8px; padding:10px 12px; font-size:13px; margin:12px 0; }
+</style>
+</head>
+<body>
+
+<h1>rememberwhen — media spike</h1>
+<p class="sub" id="whoami">…</p>
+
+<div class="bar">
+  <button class="primary" id="run">Draai alle probes</button>
+  <button id="run-risky">Video via SW (los)</button>
+  <button id="copy">Kopieer rapport</button>
+</div>
+
+<h2>Omgeving</h2>
+<dl id="env"></dl>
+
+<h2>Probes</h2>
+<table><tbody id="results"></tbody></table>
+
+<h2>Met het oog waargenomen</h2>
+<div class="note">Deze velden gaan mee in het rapport. Vul ze in <em>nadat</em> de probes klaar zijn.</div>
+<label for="obs-prompt">Verscheen er een systeemmelding over het lokale netwerk? (letterlijke tekst, of “geen”)</label>
+<input type="text" id="obs-prompt" placeholder="geen">
+<label for="obs-settings">Staat er iets nieuws onder Instellingen → Privacy en beveiliging → Lokaal netwerk?</label>
+<input type="text" id="obs-settings" placeholder="niets nieuws">
+<label for="obs-visual">Wat zag je op het scherm dat de probes niet meten? (haperingen, laadtijd, kwaliteit)</label>
+<input type="text" id="obs-visual" placeholder="">
+<label for="obs-free">Vrije notities</label>
+<input type="text" id="obs-free" placeholder="">
+
+<h2>Rapport</h2>
+<p class="sub">Plak dit als reactie onder issue #5.</p>
+<textarea id="report" readonly></textarea>
+
+<div class="stage" id="stage"></div>
+<script src="./spike.js"></script>
+</body>
+</html>

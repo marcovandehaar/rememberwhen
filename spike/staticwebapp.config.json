@@ -1,0 +1,15 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html"
+  },
+  "mimeTypes": {
+    ".webmanifest": "application/manifest+json",
+    ".mov": "video/quicktime"
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-store"
+  },
+  "responseOverrides": {
+    "404": { "rewrite": "/index.html" }
+  }
+}
