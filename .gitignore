@@ -13,3 +13,12 @@ $RECYCLE.BIN/
 .playwright-mcp
 .claude
 .agents
+
+# Personal photos again: public repo.
+prototype/story/public/media/
+.vite/
+node_modules/
+dist/
+
+# Derived from those photos: filenames and exact capture times.
+prototype/story/chapter.json
