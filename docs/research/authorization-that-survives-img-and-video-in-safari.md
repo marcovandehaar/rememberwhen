@@ -91,6 +91,53 @@ Legend: **yes** = established from a primary source; **no** = established that i
 
 ---
 
+## Settled on the device, 2026-08-31
+
+Three of the questions §8 lists as probes were answered on the NAS itself the same day this note was
+written, over SSH. They change matrix cells, so they belong up here rather than in a footnote.
+
+**Probe 1 — Synology's nginx does *not* have `secure_link`.** `nginx -V` on DSM prints no configure
+arguments at all (Synology strips them), and `strings` is not present on the box, so the module list was
+read straight out of the binary:
+
+```sh
+grep -aoE "ngx_http_[a-z_]+_module" /usr/bin/nginx | sort -u
+```
+
+nginx 1.23.1, 51 modules. **`ngx_http_secure_link_module` is absent. So is
+`ngx_http_auth_request_module`**, which rules out delegating the check to a subrequest as well. Present and
+relevant: `auth_basic`, `headers_filter` (`add_header`), `realip`, `access`, `proxy`, and both
+`range_header_filter` / `range_body_filter`.
+
+This closes §3.3 in the negative: **nginx cannot verify a signed URL on this box, whatever Web Station's UI
+does or does not expose.** The signed-URL route needs something else in the path.
+
+**Probe 3 — Apache 2.4 and PHP are already installed.** `/var/packages` lists `Apache2.4`, `PHP8.0`,
+`PHP8.2`, `PHP8.3` alongside `WebStation`, with `php82`/`php83` FPM and CGI binaries in
+`/usr/local/bin`. That lowers the cost of both the `.htaccess` route (§4.3) and the PHP route (§3.3) from
+"install and maintain a package" to "point the portal at a different back-end". It does not change what
+either can *enforce* — only what it costs to get there.
+
+**A by-product for note #4.** `ngx_http_headers_filter_module` is compiled in, so the nginx on this box
+*can* emit `add_header`. The open question in `local-network-access-ipados.md` §3 — whether Synology can be
+made to send CORS response headers — is therefore about what the UI exposes and what survives a DSM update,
+not about whether the server is capable of it.
+
+### One route this note did not consider, worth a probe
+
+**PHP verifies, nginx serves: `X-Accel-Redirect`.** The objection to the signed-URL route is that PHP ends
+up streaming 20 MB clips and implementing `Range` itself on a box with ~209 MB free. nginx has a standard
+way out of exactly that: the application returns a tiny response carrying `X-Accel-Redirect: /internal/...`
+and nginx serves the file from an `internal` location, handling `Range` and `sendfile` natively. PHP then
+never touches a byte of media — it only checks the HMAC.
+
+`ngx_http_proxy_module` (which owns `X-Accel-Redirect`) and both range filters are present, so the server
+side is capable. **[UNESTABLISHED]:** whether an `internal` location can be added to a Web Station-generated
+vhost and survive a DSM update, and whether Web Station's PHP is wired through nginx (`fastcgi`) rather
+than through the Apache back-end, which would need `mod_xsendfile` instead — and that is not in the package
+list. If it works, it removes the main cost from the only mechanism that survives cross-site.
+
+
 ## 1. What an `<img>` and a `<video>` actually send
 
 This is the foundation everything else sits on, and it is worth pinning down exactly, because it is more
