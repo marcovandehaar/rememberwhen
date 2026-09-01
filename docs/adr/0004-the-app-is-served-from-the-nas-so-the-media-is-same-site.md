@@ -27,3 +27,47 @@ The decision to require authorization at all, and against whom, is [issue #15](h
 - **Basic authentication is person-shaped and is being used as a device credential.** The secret is typeable rather than provisioned, so anyone who learns it can enrol any device. With 2–4 devices, long random passwords held in a password manager, and a LAN-local threat model, that is proportionate. It would not be if the app ever became reachable from outside the house.
 - **The "no code" claim is measured only halfway, and one cost is not costed at all.** That Web Station's generated vhost permits `AuthConfig`, and that Apache 2.4 and PHP 8.x are installed, was read off the device. That the whole thing works — Safari prompting exactly once, `<img>` and `<video>` carrying the credential, range requests surviving, and the failure being visible rather than a silent broken image — has not been seen on the iPad. Nor has the throughput cost of moving the portal from nginx to Apache on a 489 MB box, against the 25.4 MB/s nginx currently manages on a 20 MB clip. [Issue #17](https://github.com/marcovandehaar/rememberwhen/issues/17) settles both, and this ADR is to be amended with what it finds. If the assumption does not hold, the hosting choice reopens with it.
 - **No new term enters `CONTEXT.md`.** An enrolled device is not an entity in this system: there is no registration, no lifecycle, and nothing the app knows or shows. There is only HTTP authentication in front of the door. `Media Source` still describes the same seam.
+
+## Amendment, 2026-09-01: the assumption holds, and here is what it cost
+
+[Issue #17](https://github.com/marcovandehaar/rememberwhen/issues/17) measured the half of this ADR that had only been reasoned about. The mechanism works end to end on the household iPad, so the hosting choice stands. But "no application code" hid three lines, one promise was overstated, and one failure mode is worse than this ADR implied.
+
+**What was seen on the device.** iPadOS 18.7.5, WebKit 605.1.15, behind `AuthType Basic` in a `.htaccess` on Web Station's Apache 2.4 back-end, in a Safari tab and as an installed web app:
+
+- `<img>` renders and `<video>` loads metadata, plays and seeks.
+- All three range requests Safari actually issues return `206` with a correct `Content-Range`. They are not the ones Chrome issues: WebKit asks `bytes=0-1`, then `bytes=0-19950413`, then `bytes=19922944-19950413` — a two-byte probe followed by two explicitly-terminated ranges, where Chrome sends three open-ended ones.
+- The catalogue `fetch()` returns `200`, `cache.put()` stores an authenticated response, and the Service Worker's own `fetch()` is authenticated too.
+- The credential travels visibly: the requests a `<video>` element issues reach the Service Worker's fetch handler carrying `credentials: "include"`. This is the request object, not an inference from a picture appearing.
+- **Failure is visible.** A wrong credential returns `401` with a `WWW-Authenticate` header readable from script, and for a same-origin subresource in an unknown realm Safari **prompts** rather than continuing with an empty credential. That is the opposite of the cross-origin silence established in [issue #13](https://github.com/marcovandehaar/rememberwhen/issues/13), and it is what this ADR was counting on.
+- One line per device works both ways: deleting a line from `.htpasswd` locks out that device and leaves the others at `200`.
+
+**Switching the back-end is a setting, and it cost no memory.** In this DSM the control is Web Station → **Web Service** → *Default Service* → **Edit** → `HTTP back-end server`; the *General Settings* pane the older documentation describes no longer exists. Available memory before and after the switch: **186 MB, unchanged** — because Apache was already resident for the personal-website feature and only needed nginx to point at it. Reverting is the same dropdown.
+
+**The throughput cost is real, small, and charged per request rather than per byte.** Basic authentication hashes once per request regardless of size, so a 20 MB clip absorbs it and a page of photos does not:
+
+| | |
+| --- | --- |
+| 20 MB clip over HTTPS, 6 runs, no threshold | median 29.9–31.9 MB/s |
+| 20 MB clip over HTTPS, 6 runs, **behind the threshold** | median **31.4 MB/s** |
+| 50 photos, nginx (the old baseline) | 0.98 and 1.05 s |
+| 50 photos, **Apache** | **1.154 s** |
+| 200 photos, Apache, no threshold | 4.431 s |
+| 200 photos, Apache, **behind the threshold** | **4.893 s** |
+
+So: the back-end change costs 10–15% on many small files, the threshold costs a further **2.3 ms per request**, and on a single large file neither is measurable. The ceiling was never the back-end — TLS in DSM's own nginx caps at ~36 MB/s, while Apache alone serves the same file at 105–127 MB/s. The 25.4 MB/s this ADR worried about was a TLS number all along.
+
+**One hash algorithm choice matters, and the usual advice is backwards here.** `htpasswd` defaults to `apr1`, which costs ~1.7 ms per request. `bcrypt` at its default cost 5 costs **9.7 ms**, and at cost 10 it is unusable — a benchmark of 300 requests did not finish in two minutes. Where a credential is verified once per login bcrypt is right; where it is verified on every media subresource on an 800 MHz ARM box, it is not. **Use `apr1`.**
+
+**"No application code" is true, and it still cost three lines.** None of them is application code, but the phrase concealed them:
+
+1. `crossorigin="use-credentials"` on `<link rel="manifest">`. Without it the browser fetches the manifest with `credentials: omit` and gets a `401`, and the installed app loses its name, icon and display mode.
+2. `AddType application/manifest+json .webmanifest` in the `.htaccess`. Apache's `mime.types` does not know the extension and then sends **no `Content-Type` at all**; iOS treats that as no manifest, and the installed app fell back from `display-mode: standalone` to `browser`. nginx did send a type. **This is the one thing the back-end switch demonstrably broke**, and it was found only because the spike measured the installed form.
+3. The app must never set `credentials: 'omit'` on a fetch. It returns `401` everywhere, including from inside the Service Worker.
+
+**The promise "type it once per device" was overstated; it is once per session.** Reloading does not re-prompt. Closing the browser and reopening does, in a tab and in the installed app alike. The credential is session-scoped. Marco has accepted this explicitly, and has also accepted using the app in a tab rather than installed, so the mechanism does not change — but the record should not promise more than it delivers.
+
+**A revoked credential produces a cascade of prompts, one per subresource.** With the page already open and the `.htpasswd` line deleted underneath it, Safari raised a password dialog for *each* failing resource in turn: cancelling one brought the next, and the page could not be interacted with until all of them had been dismissed. `<video>` behaves the same as `<img>`. On a story page carrying 200 photos this is 200 dialogs. It is loud rather than silent, which is the safer of the two failure modes, but this ADR's line that re-entering the credential "is the same act as the first time" understates it. Designing around it — one authenticated probe before rendering, and a full page reload on `401` so the browser asks once at document level — belongs to the build, not here.
+
+**The caching consequence has a condition attached.** [Issue #5](https://github.com/marcovandehaar/rememberwhen/issues/5) measured 39 GB of quota on this device and `persist()` returning `true` without any prompt — but only for the **installed** app. In a tab the quota is identical and `persist()` is `false`, so iPadOS may evict the cache. This ADR's claim that the PWA's caching now carries weight a CDN would have absorbed is therefore true of the installed form only. Confirmed to work behind the threshold.
+
+**What this does not change:** the decision. Same-site remains the only shape in which a credential survives Safari on `<img>` and `<video>`, the threshold still costs no application code, and nothing measured undermines configuration A. The hosting choice stands, amended rather than reopened.
