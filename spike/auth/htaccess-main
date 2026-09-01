@@ -6,3 +6,9 @@ AuthType Basic
 AuthName "rememberwhen"
 AuthUserFile /volume1/web/.htpasswd-authspike
 Require valid-user
+
+# Apache's mime.types kent `.webmanifest` niet, en dan stuurt hij helemaal geen
+# Content-Type mee -- nginx deed dat wel. Zonder type negeert iOS het manifest:
+# de app komt dan op het beginscherm zonder naam, icoon of display-modus.
+# Gemeten in #17: display-mode viel terug van `standalone` naar `browser`.
+AddType application/manifest+json .webmanifest
