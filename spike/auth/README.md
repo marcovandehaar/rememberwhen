@@ -42,6 +42,27 @@ De `.htpasswd`-bestanden staan op `/volume1/web/.htpasswd-authspike` en `…-rea
 | `wrong-explicit` (losse knop) | Wijst de server een fout credential zichtbaar af? | 5 |
 | `img-second-realm` (losse knop) | **Vraagt Safari om een wachtwoord voor een same-origin subresource, of breekt de `<img>` stil?** | 5 |
 
+## Wat er in Chrome al gemeten is
+
+De bundel is eerst lokaal door Chrome gehaald, tegen een servertje dat dezelfde 401-dans doet — DSM staat
+geen SSH-tunnels toe (`AllowTcpForwarding no`), dus Apache op `:915` is van buiten de NAS niet te bereiken.
+Dat is dezelfde discipline als bij #5: een falende probe op de iPad moet iets over het toestel zeggen, niet
+over de harness. Drie dingen kwamen eruit die de iPad-sessie sturen:
+
+- **Het manifest moet `crossorigin="use-credentials"`.** Zonder dat attribuut haalt de browser
+  `manifest.webmanifest` met `credentials: omit` en krijgt hij **401** — gemeten: de standaard-fetch geeft
+  200, dezelfde fetch met `omit` geeft 401, en het attribuut stond er niet. Dat is geen applicatiecode,
+  maar het is wél een regel HTML die ADR 0004's "nul regels" niet noemt. De bundel draagt het attribuut nu.
+- **`credentials: 'omit'` sluit je overal buiten**, ook vanuit de service worker. De app mag het nergens
+  zetten.
+- **Een verzoek dat de service worker zélf uitstuurt draagt het credential wél mee** (200 standaard, 401
+  met `omit`). Die vraag was nergens beantwoord, en de PWA-cache van ADR 0004 hangt erop.
+
+Verder gedroeg alles zich zoals de ADR hoopt: `<img>` rendert, de clip speelt en zoekt, beide
+range-verzoeken geven 206, `wrong-explicit` geeft een zichtbare 401 mét leesbare `WWW-Authenticate`, en de
+worker ziet dezelfde drie range-verzoeken als in #5 (`bytes=0-`, `bytes=19922944-`, `bytes=262144-`).
+**Dit alles is Chromium, niet WebKit** — de iPad is nog steeds de meting die telt.
+
 ## Uitrollen
 
 ```powershell
@@ -69,7 +90,8 @@ permissiestatus steken die grens niet over, dus het zijn echt twee metingen.
 5. Druk op **Faalpatroon (los)**. Verschijnt er een tweede wachtwoordmelding (`rememberwhen-realm2`)?
    **Annuleer die.** Wat doet de `<img>` dan — een zichtbaar kapot plaatje, of niets?
 6. Vul de vragen onder *Met het oog waargenomen* in en druk op **Kopieer rapport**.
-7. Deel → *Zet op beginscherm*, open vanaf het beginscherm, en herhaal stap 1–6.
+7. Deel → *Zet op beginscherm*. **Kijk of het icoon en de naam kloppen**: die komen uit het manifest, en
+   dat manifest zit achter dezelfde drempel. Open vanaf het beginscherm en herhaal stap 1–6.
 8. **Herstart het toestel** en open de app nog één keer. Vraagt hij dan opnieuw?
 
 Punt 5 van het ticket vraagt ook om een *verlopen* credential. Dat gaat niet vanaf de iPad: iemand haalt de
