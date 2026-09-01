@@ -48,7 +48,7 @@ function row(r) {
   const ms = r.ms != null ? ' <span class="dim">' + r.ms + ' ms</span>' : '';
   tr.innerHTML =
     '<td class="s ' + mark[1] + '">' + mark[0] + '</td>' +
-    '<td class="n">' + r.name + ms + '</td>' +
+    '<td class="n">' + esc(r.name) + ms + '</td>' +
     '<td class="d">' + esc(r.detail || '') + '</td>';
 }
 
