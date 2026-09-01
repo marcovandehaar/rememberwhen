@@ -217,28 +217,29 @@ async function runAll() {
     };
   });
 
-  /* Punt 4: overleven range-verzoeken de drempel? De speler stelt er drie. */
-  await probe('range-head', 'Range bytes=0-1023', async () => {
-    const r = await fetchProbe(bust('./media/clip.mov'), { headers: { Range: 'bytes=0-1023' } });
-    if (!r.ok) return { status: 'fail', ms: r.ms, detail: r.error };
-    return {
-      status: r.status === 206 ? 'ok' : 'fail',
-      ms: r.ms,
-      detail: 'status=' + r.status + ' Content-Range=' + (r.headers['content-range'] || '—') + ' Accept-Ranges=' + (r.headers['accept-ranges'] || '—'),
-      data: r.headers,
-    };
-  });
-
-  /* De staart: een iPhone-.mov heeft zijn index aan het eind (gemeten in #5). */
-  await probe('range-tail', 'Range bytes=19922944- (de staart van de clip)', async () => {
-    const r = await fetchProbe(bust('./media/clip.mov'), { headers: { Range: 'bytes=19922944-' } });
-    if (!r.ok) return { status: 'fail', ms: r.ms, detail: r.error };
-    return {
-      status: r.status === 206 ? 'ok' : 'fail',
-      ms: r.ms,
-      detail: 'status=' + r.status + ' Content-Range=' + (r.headers['content-range'] || '—'),
-    };
-  });
+  /* Punt 4: overleven range-verzoeken de drempel? Niet drie willekeurige
+     verzoeken, maar exact de drie die Safari op dít toestel blijkt te stellen,
+     gemeten in #5 op de iPad — en die zijn anders dan wat Chrome deed. Eerst
+     twee bytes om te zien óf de server ranges kan, dan het hele bestand met een
+     expliciet einde, dan de staart, want een iPhone-.mov heeft zijn index
+     achteraan. Chrome vroeg `bytes=0-`, `bytes=19922944-` en `bytes=32768-`:
+     open einden. Safari sluit ze allemaal af, en dat is precies het soort
+     verschil waar een drempel over kan struikelen. */
+  const RANGES = ['bytes=0-1', 'bytes=0-19950413', 'bytes=19922944-19950413'];
+  for (let i = 0; i < RANGES.length; i++) {
+    const R = RANGES[i];
+    await probe('range-' + i, 'Range ' + R, async () => {
+      const r = await fetchProbe(bust('./media/clip.mov'), { headers: { Range: R } });
+      if (!r.ok) return { status: 'fail', ms: r.ms, detail: r.error };
+      return {
+        status: r.status === 206 ? 'ok' : 'fail',
+        ms: r.ms,
+        detail: 'status=' + r.status + ' Content-Range=' + (r.headers['content-range'] || '—') +
+          ' Accept-Ranges=' + (r.headers['accept-ranges'] || '—'),
+        data: r.headers,
+      };
+    });
+  }
 
   await probe('video', '<video> achter de drempel: metadata → play → seek', async () => {
     const v = video(bust('./media/clip.mov'));

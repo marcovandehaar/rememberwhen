@@ -30,7 +30,7 @@ De `.htpasswd`-bestanden staan op `/volume1/web/.htpasswd-authspike` en `…-rea
 | `img` | Draagt een `<img>` het credential mee? | 3 |
 | `catalogue` | En een `fetch()` van JSON? | 3 |
 | `fetch-omit` | Sluit `credentials: 'omit'` de app buiten? | 3 |
-| `range-head` / `range-tail` | Overleven range-verzoeken de drempel? | 4 |
+| `range-0` / `range-1` / `range-2` | Overleven range-verzoeken de drempel? Exact de drie die Safari op de iPad stelt, gemeten in #5 | 4 |
 | `video` | Metadata, afspelen én zoeken op de 20 MB-clip | 3, 4 |
 | `throughput` | Het getal dat tegenover nginx' 25,4 MB/s hoort | 6 |
 | `open-dir` | Lekt de drempel naar `/spike/`? | 1 |
