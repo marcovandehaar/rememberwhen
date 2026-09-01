@@ -1,0 +1,8 @@
+# rememberwhen auth-spike — issue #17.
+# De drempel uit ADR 0004, kaal: nul regels applicatiecode.
+# Web Station's gegenereerde vhost draagt `AllowOverride All` op /var/services/web,
+# dus AuthConfig is hier toegestaan zonder de vhost aan te raken.
+AuthType Basic
+AuthName "rememberwhen"
+AuthUserFile /volume1/web/.htpasswd-authspike
+Require valid-user

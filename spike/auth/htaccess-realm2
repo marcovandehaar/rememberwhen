@@ -1,0 +1,7 @@
+# Tweede drempel, ander realm, credential dat geen enkel toestel heeft.
+# Dit is het faalpatroon van punt 5: vraagt Safari om een wachtwoord voor een
+# same-origin subresource, of breekt de <img> stil?
+AuthType Basic
+AuthName "rememberwhen-realm2"
+AuthUserFile /volume1/web/.htpasswd-authspike-realm2
+Require valid-user

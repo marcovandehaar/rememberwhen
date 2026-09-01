@@ -1,0 +1,8 @@
+{
+  "marker": "authspike-catalogue-ok",
+  "note": "Staat in voor de catalogus die de app ophaalt: een fetch() van JSON achter dezelfde drempel.",
+  "memories": [
+    { "id": "zillertal-2024", "destination": "Zillertal", "chapters": 6 },
+    { "id": "allgau-2025", "destination": "Allgau", "chapters": 3 }
+  ]
+}
