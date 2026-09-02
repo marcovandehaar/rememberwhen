@@ -33,23 +33,31 @@ Location is available on roughly a quarter of the library, concentrated in the i
 location-based `Chapter` heuristic is not a general solution; it is a solution for some holidays and not
 others.** Whatever the `Indexer` does must degrade to something sensible when there is no location at all.
 
-### 2. A folder is not a trip
+### 2. A folder that seems to span months is usually a camera with the wrong clock
 
-Every folder examined closely has a dominant contiguous block plus a handful of outliers. Schotland 2010 is
-the clearest case, and it explains itself once you look at which camera shot what:
+Every folder examined closely has a dominant contiguous block plus a handful of outliers. Schotland 2010
+looks like the worst case — a folder "spanning 187 days" — until you line the cameras up against both
+timestamps:
 
-| | photos | dates |
-| --- | --- | --- |
-| SONY DSC-W70 | 112 | 3–5 August 2010 — **the trip** |
-| NIKON D50 | 3 | 30 January 2010 — strays from another camera |
-| no EXIF at all (the panoramas) | 5 | mtime says 7 August 2010 |
+| | photos | EXIF capture date | file mtime |
+| --- | --- | --- | --- |
+| SONY DSC-W70 | 112 | 3–5 August 2010 | matches the EXIF to the minute |
+| NIKON D50 | 3 | **30 January 2010** | **6 August 2010, 23:30 — all three identical** |
+| no EXIF at all (the panoramas) | 5 | — | 7 August 2010 |
 
-Taken naively the folder "spans 187 days". It does not; it is a three-day trip with three unrelated photos
-in it. Disneyland Paris 2025 has the same shape (1 photo on 10 March, then 22/31/60 on 14–16 March), and
-Canada 2013 runs 24 January to 1 February and then jumps four days to four final files.
+The three Nikon files were copied off a card in one go on 6 August, three days into a trip that ran 3–5
+August. They are not photos from another occasion; **they are photos from this trip taken on a camera whose
+clock was wrong.** For those three files the mtime is closer to the truth than the EXIF, which is the exact
+reverse of the rule that holds everywhere else in this library.
 
-**The `Indexer` needs outlier rejection before it can even establish a trip's date range**, let alone
-propose `Chapter`s inside it. A min/max over the folder is wrong in at least three of the thirteen folders.
+Disneyland Paris 2025 has the same shape (1 photo on 10 March, then 22/31/60 on 14–16 March), and Canada 2013
+runs 24 January to 1 February before jumping four days to four final files.
+
+**So the `Indexer` cannot simply take a min/max over a folder** — that is wrong in at least three of the
+thirteen. But nor should it silently discard the outliers, because they are usually real photos of the trip
+with a broken timestamp. What it can do is *notice*: a trip that appears to last 187 days is an anomaly, and
+the shape of the anomaly (one camera's whole output sitting far outside the cluster, with mtimes inside it)
+is machine-detectable and points straight at the cause.
 
 ### 3. Falling back to mtime does not merely lose precision — it invents a date
 
@@ -57,9 +65,14 @@ The five Scottish panoramas carry no EXIF whatsoever: no camera, no capture time
 **7 August 2010, two days after the trip ended** — because that is when they were stitched, not when they
 were shot. A fallback to mtime would file them as a separate `Chapter` after the holiday.
 
-The map already said mtime "is only the copy date and useless for this". This is what that costs in
-practice, and it argues for something stronger than a fallback: **a `Media Item` with no capture time should
-be placed by its neighbours or handed to the operator, never by its mtime.**
+The map already said mtime "is only the copy date and useless for this". This is what that costs in practice.
+
+Put this next to finding 2 and the honest conclusion is uncomfortable: **neither timestamp can be trusted on
+its own.** EXIF is right for 99% of the library and badly wrong for one camera; mtime is wrong for the
+panoramas and right for that same camera. What separates the two cases is not which field you read but
+whether the value **agrees with the rest of the folder** — and that is something the `Indexer` can check. A
+`Media Item` whose capture time falls far outside its neighbours is a flag, not a fact, whichever field it
+came from.
 
 ### 4. "Original" is not a uniform concept — some folders hold exports
 
