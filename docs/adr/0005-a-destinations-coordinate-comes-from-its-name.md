@@ -55,3 +55,8 @@ and does not degrade when the camera was mute.
   cameras per library, not per folder. The estimate is nearer half than the "edge case" assumed in
   conversation. It does not threaten this decision — the `Gazetteer` earns itself back faster the larger the
   number is — but nobody should quote a percentage until it is measured.
+- **Amendment**: the overlapping-pins problem this ADR flagged is resolved in
+  [issue #11](https://github.com/marcovandehaar/rememberwhen/issues/11). Because the coordinate follows from the
+  name, two `Memory`s with the same `Destination` name always land on the exact same point — no proximity
+  threshold needed. The globe groups pins by `Destination` name at render time and shows a chooser; `Destination`
+  stays a per-`Memory` label, no new entity.
