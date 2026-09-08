@@ -5,7 +5,7 @@ An iPad-first cinematic memory experience built on top of a pre-composed media i
 ## Language
 
 **Memory**:
-One trip, as a person would recall it: `Denemarken 2024`, `Zillertal 2026`. The top-level unit the app presents. Two visits to the same place are two separate Memories. Its cover image — the photo shown on its globe pin — defaults to its earliest Media Item; the operator may override the choice during indexing.
+One trip, as a person would recall it: `Denemarken 2024`, `Zillertal 2026`. The top-level unit the app presents. Two visits to the same place are two separate Memories. Its own name is distinct from its Destination's name (`Zillertal 2026` the trip, `Zillertal` the headline place) and never collapses into it. Its cover image — the photo shown on its globe pin — defaults to its earliest Media Item; the operator may override the choice during indexing.
 _Avoid_: Vakantie, Trip, Holiday, Album
 
 **Chapter**:
