@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/indexer.Tests/">
+    <Project Path="indexer.Tests/Indexer.Tests.csproj" />
+  </Folder>
+  <Folder Name="/indexer/">
+    <Project Path="indexer/Indexer.csproj" />
+  </Folder>
+</Solution>

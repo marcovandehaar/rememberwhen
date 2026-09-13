@@ -17,3 +17,13 @@ $RECYCLE.BIN/
 # Echte vakantiemedia — deze repo is publiek
 prototype/
 spike/media/
+
+### Frontend (Vite)
+frontend/node_modules/
+frontend/dist/
+
+### Indexer (.NET)
+indexer/bin/
+indexer/obj/
+indexer.Tests/bin/
+indexer.Tests/obj/

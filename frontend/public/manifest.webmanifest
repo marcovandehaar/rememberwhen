@@ -1,0 +1,8 @@
+{
+  "name": "rememberwhen",
+  "short_name": "rememberwhen",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
