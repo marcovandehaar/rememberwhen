@@ -13,7 +13,15 @@ type NaturalSize = { width: number; height: number }
 // degrades kenBurnsTransform to identity, which is a safe default.
 const FALLBACK_SIZE: NaturalSize = { width: 0, height: 0 }
 
-export function Story({ memory, onOpenItem }: { memory: Memory; onOpenItem: (item: Beat['item']) => void }) {
+export function Story({
+  memory,
+  onOpenItem,
+  onBack,
+}: {
+  memory: Memory
+  onOpenItem: (item: Beat['item']) => void
+  onBack: () => void
+}) {
   const list = useMemo(() => beats(memory), [memory])
   const { index, isMounted } = useScrollWindow(list.length)
   const containerAspect = useContainerAspect()
@@ -104,6 +112,27 @@ export function Story({ memory, onOpenItem }: { memory: Memory; onOpenItem: (ite
 
       {/* The scroll length. Nothing is painted here; it only makes the page tall. */}
       <div style={{ height: `${totalUnits * 100}svh` }} />
+
+      <button
+        type="button"
+        onClick={onBack}
+        style={{
+          position: 'fixed',
+          top: 'calc(env(safe-area-inset-top, 0px) + 14px)',
+          left: 16,
+          zIndex: 30,
+          border: 'none',
+          borderRadius: 999,
+          padding: '8px 16px',
+          background: 'rgba(0,0,0,.5)',
+          backdropFilter: 'blur(8px)',
+          color: '#fff',
+          font: '600 13px/1 -apple-system, system-ui, sans-serif',
+          cursor: 'pointer',
+        }}
+      >
+        ← globe
+      </button>
 
       <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
         {plan.map(({ b, first }) => {

@@ -21,10 +21,15 @@ function App() {
 
   if (!catalog) return null
 
+  const backToGlobe = () => {
+    setSelected(null)
+    window.scrollTo(0, 0)
+  }
+
   return (
     <>
       {!selected && <Globe memories={catalog.memories} onSelect={setSelected} />}
-      {selected && <Story memory={selected} onOpenItem={setOpenItem} />}
+      {selected && <Story memory={selected} onOpenItem={setOpenItem} onBack={backToGlobe} />}
       {openItem && <Lightbox item={openItem} onClose={() => setOpenItem(null)} />}
     </>
   )
