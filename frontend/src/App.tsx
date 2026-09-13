@@ -4,9 +4,9 @@ import { Globe } from './globe/Globe'
 import { Story } from './story/Story'
 import { Lightbox } from './story/Lightbox'
 
-// #29: built against a handwritten sample catalog (public/sample-catalog.json)
-// that follows the real schema — no dependency on real Indexer output.
-const CATALOG_URL = '/sample-catalog.json'
+// #30: the real Indexer publishes catalog.json (+ media/) to the webroot
+// root, alongside this app — see deploy-nas.ps1's -IndexerOutput.
+const CATALOG_URL = '/catalog.json'
 
 function App() {
   const [catalog, setCatalog] = useState<Catalog | null>(null)

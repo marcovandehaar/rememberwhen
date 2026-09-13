@@ -2,6 +2,16 @@
 #
 #   frontend/dist -> /volume1/web/  -> https://nas.vandehaar.dev/
 #
+# -IndexerOutput publiceert daarnaast de output van een Indexer-run (#30):
+# catalog.json + media/ landen in de root van diezelfde webroot, naast
+# index.html — precies waar App.tsx's CATALOG_URL ('/catalog.json') en de
+# root-relatieve mediaRef/coverImage-paden uit het schema ze verwachten. Zo
+# is er geen handmatige stap tussen een Indexer-run en wat er op het toestel
+# staat, op het draaien van dit script na.
+#
+#   dotnet run --project indexer -- <bron> <memory> <bestemming> indexer/output
+#   ./deploy-nas.ps1 -IndexerOutput indexer/output
+#
 # Dit script raakt de .htaccess en .htpasswd-bestanden op de webroot niet aan:
 # die bevatten het Basic-auth-credential en horen niet in een publieke repo of
 # een script dat per deploy opnieuw draait. Inhoud van /volume1/web/.htaccess
@@ -28,7 +38,8 @@ param(
   [string]$NasUser = 'vandehaar',
   [string]$NasHost = '192.168.0.137',
   [string]$WebRoot = '/volume1/web',
-  [string]$KeyFile = "$env:USERPROFILE\.ssh\rememberwhen_nas_ed25519"
+  [string]$KeyFile = "$env:USERPROFILE\.ssh\rememberwhen_nas_ed25519",
+  [string]$IndexerOutput = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,8 +54,8 @@ $ssh      = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyCheckin
 $scp = $ssh + '-O'
 
 function Invoke-Nas([string]$cmd) { & ssh @ssh $target $cmd }
-function Get-RelativePath([System.IO.FileInfo]$file) {
-  $file.FullName.Substring($dist.Length + 1).Replace('\', '/')
+function Get-RelativePath([string]$root, [System.IO.FileInfo]$file) {
+  $file.FullName.Substring($root.Length + 1).Replace('\', '/')
 }
 
 Write-Host "== Frontend bouwen ==" -ForegroundColor Cyan
@@ -53,26 +64,43 @@ try { npm run build } finally { Pop-Location }
 
 if (-not (Test-Path $dist)) { throw "Build leverde geen $dist op." }
 
-Write-Host "== dist/ kopieren naar ${target}:$WebRoot ==" -ForegroundColor Cyan
-# scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
-# ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
-# buiten het script om werkte wél) — dus geen scp -r op mappen. In plaats
-# daarvan: elke map expliciet aanmaken via ssh, en dan alleen bestanden
-# (nooit mappen) los kopiëren naar hun exacte doelpad. Bestaande bestanden
-# eerst verwijderen, want scp overschrijft de inhoud van een reeds bestaand
-# bestand van een andere eigenaar (http) wel, maar chmod erna niet.
-$files = Get-ChildItem -Path $dist -Recurse -File -Force
-$relDirs = $files | ForEach-Object { Split-Path (Get-RelativePath $_) -Parent } |
-  Where-Object { $_ } | Select-Object -Unique
-foreach ($relDir in $relDirs) {
-  Invoke-Nas "mkdir -p '$WebRoot/$relDir'"
+# Beide bronnen publiceren naar dezelfde webroot-root: dist/ (de app) en,
+# optioneel, de Indexer-output (catalog.json + media/, #30). Los houden zou
+# betekenen dat de root-relatieve mediaRef/coverImage-paden uit het
+# catalogus-schema een sub-pad moeten kennen dat nergens is vastgelegd.
+$sources = @(@{ Root = $dist; Label = 'dist/' })
+if ($IndexerOutput) {
+  $indexerRoot = (Resolve-Path $IndexerOutput).Path
+  if (-not (Test-Path (Join-Path $indexerRoot 'catalog.json'))) {
+    throw "$indexerRoot bevat geen catalog.json (is dit een Indexer-outputmap?)"
+  }
+  $sources += @{ Root = $indexerRoot; Label = "$IndexerOutput" }
 }
 
-$remotePaths = foreach ($file in $files) {
-  $remotePath = "$WebRoot/$(Get-RelativePath $file)"
-  Invoke-Nas "rm -f '$remotePath'"
-  & scp @scp $file.FullName "${target}:$remotePath"
-  $remotePath
+$allRemotePaths = @()
+foreach ($source in $sources) {
+  Write-Host "== $($source.Label) kopieren naar ${target}:$WebRoot ==" -ForegroundColor Cyan
+  # scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
+  # ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
+  # buiten het script om werkte wél) — dus geen scp -r op mappen. In plaats
+  # daarvan: elke map expliciet aanmaken via ssh, en dan alleen bestanden
+  # (nooit mappen) los kopiëren naar hun exacte doelpad. Bestaande bestanden
+  # eerst verwijderen, want scp overschrijft de inhoud van een reeds bestaand
+  # bestand van een andere eigenaar (http) wel, maar chmod erna niet.
+  $files = Get-ChildItem -Path $source.Root -Recurse -File -Force
+  $relDirs = $files | ForEach-Object { Split-Path (Get-RelativePath $source.Root $_) -Parent } |
+    Where-Object { $_ } | Select-Object -Unique
+  foreach ($relDir in $relDirs) {
+    Invoke-Nas "mkdir -p '$WebRoot/$relDir'"
+  }
+
+  $remotePaths = foreach ($file in $files) {
+    $remotePath = "$WebRoot/$(Get-RelativePath $source.Root $file)"
+    Invoke-Nas "rm -f '$remotePath'"
+    & scp @scp $file.FullName "${target}:$remotePath"
+    $remotePath
+  }
+  $allRemotePaths += $remotePaths
 }
 
 # Web Station serveert als de groep 'http'. Zonder leesrecht krijg je een
@@ -80,7 +108,7 @@ $remotePaths = foreach ($file in $files) {
 # aanraken: de rest van de webroot is van 'http'/'root' en niet van ons om
 # te chmod'en (en dat mislukt toch als we het proberen).
 Write-Host "== Rechten zetten voor de http-groep ==" -ForegroundColor Cyan
-$quotedPaths = ($remotePaths | ForEach-Object { "'$_'" }) -join ' '
+$quotedPaths = ($allRemotePaths | ForEach-Object { "'$_'" }) -join ' '
 Invoke-Nas "chmod o+rX $quotedPaths"
 
 Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
