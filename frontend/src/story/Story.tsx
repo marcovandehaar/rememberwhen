@@ -116,11 +116,15 @@ export function Story({
       <button
         type="button"
         onClick={onBack}
+        aria-label="Terug naar de globe"
         style={{
           position: 'fixed',
           top: 'calc(env(safe-area-inset-top, 0px) + 14px)',
           left: 16,
           zIndex: 30,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
           border: 'none',
           borderRadius: 999,
           padding: '8px 16px',
@@ -131,7 +135,7 @@ export function Story({
           cursor: 'pointer',
         }}
       >
-        ← globe
+        ← <GlobeIcon />
       </button>
 
       <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
@@ -194,6 +198,16 @@ export function Story({
         })}
       </div>
     </>
+  )
+}
+
+function GlobeIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
   )
 }
 
