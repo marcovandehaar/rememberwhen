@@ -155,6 +155,10 @@ export function Story({
                 transform: kenBurnsTransform(b.item.storyRect, size.width, size.height, containerAspect, 0),
                 willChange: 'opacity, transform',
                 cursor: 'pointer',
+                // Without this, a slightly-too-fast tap can register as
+                // Safari's double-tap-to-zoom instead of a click — zooming
+                // the page just as the Lightbox opens on top of it.
+                touchAction: 'manipulation',
                 // Only the shot actually in view may be tapped — otherwise
                 // the next shot sits invisibly on top and steals the tap.
                 pointerEvents: b.i === index ? 'auto' : 'none',

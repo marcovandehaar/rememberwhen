@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { MediaItem } from '../catalog/types'
 
 /**
@@ -7,37 +7,57 @@ import type { MediaItem } from '../catalog/types'
  * may have at a time — fine, because only one is ever open (#12).
  */
 export function Lightbox({ item, onClose }: { item: MediaItem; onClose: () => void }) {
+  const root = useRef<HTMLDivElement | null>(null)
   const video = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
-    // `overflow: hidden` alone leaves the body's scroll offset in place, and
-    // iOS Safari sometimes repaints this fixed overlay at that stale offset
-    // instead of the viewport origin — it shows up small and shifted, as if
-    // still scrolled into the Story behind it. Pinning the body itself with
-    // `position: fixed` at its current offset (then restoring scroll on
-    // close) is the standard iOS fix and avoids the glitch outright.
-    const scrollY = window.scrollY
-    const { body } = document
-    body.style.position = 'fixed'
-    body.style.top = `-${scrollY}px`
-    body.style.left = '0'
-    body.style.right = '0'
+    document.body.style.overflow = 'hidden'
     video.current?.play().catch(() => {})
     return () => {
-      body.style.position = ''
-      body.style.top = ''
-      body.style.left = ''
-      body.style.right = ''
-      window.scrollTo(0, scrollY)
+      document.body.style.overflow = ''
+    }
+  }, [])
+
+  // The Story behind this is a tall scroll-driven page faked into looking
+  // stationary (its content is itself `position: fixed`, moved only via
+  // transforms read off scroll position) — exactly the setup where iOS
+  // Safari's `position: fixed` is known to lose track of the real visible
+  // area (it shows up small and shifted, as if still anchored to wherever
+  // the page was scrolled/zoomed). `window.visualViewport` is the browser's
+  // own live "what's actually on screen right now" rect — sizing off that
+  // instead of trusting `inset: 0` sidesteps the bug rather than guessing
+  // at its cause.
+  useLayoutEffect(() => {
+    const vv = window.visualViewport
+    const el = root.current
+    if (!vv || !el) return
+    const sync = () => {
+      el.style.width = `${vv.width}px`
+      el.style.height = `${vv.height}px`
+      el.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px)`
+    }
+    sync()
+    vv.addEventListener('resize', sync)
+    vv.addEventListener('scroll', sync)
+    return () => {
+      vv.removeEventListener('resize', sync)
+      vv.removeEventListener('scroll', sync)
     }
   }, [])
 
   return (
     <div
+      ref={root}
       onClick={onClose}
       style={{
         position: 'fixed',
-        inset: 0,
+        top: 0,
+        left: 0,
+        // Fallback for the instant before the layout effect measures the
+        // real visual viewport (and for the (untested-on-device) case where
+        // it's unavailable at all) — overwritten by `sync` immediately after.
+        width: '100vw',
+        height: '100dvh',
         zIndex: 40,
         background: 'rgba(0,0,0,.94)',
         backdropFilter: 'blur(20px)',
