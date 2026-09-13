@@ -17,6 +17,7 @@ $RECYCLE.BIN/
 # Echte vakantiemedia — deze repo is publiek
 prototype/
 spike/media/
+indexer/output/
 
 ### Frontend (Vite)
 frontend/node_modules/
