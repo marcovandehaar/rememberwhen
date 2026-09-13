@@ -23,13 +23,13 @@ export function Story({
   onBack: () => void
 }) {
   const list = useMemo(() => beats(memory), [memory])
-  const { index, isMounted } = useScrollWindow(list.length)
   const containerAspect = useContainerAspect()
   const shotRefs = useRef(new Map<number, HTMLDivElement>())
   const videoRefs = useRef(new Map<string, HTMLVideoElement>())
   const [sizes, setSizes] = useState<Map<string, NaturalSize>>(new Map())
 
   const { totalUnits, entries: plan } = useMemo(() => buildPlan(list), [list])
+  const { index, isMounted } = useScrollWindow(plan)
 
   const sizeFor = (id: string) => sizes.get(id) ?? FALLBACK_SIZE
 
