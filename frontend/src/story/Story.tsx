@@ -124,18 +124,18 @@ export function Story({
           zIndex: 30,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 10,
           border: 'none',
           borderRadius: 999,
-          padding: '8px 16px',
+          padding: '12px 22px',
           background: 'rgba(0,0,0,.5)',
           backdropFilter: 'blur(8px)',
           color: '#fff',
-          font: '600 13px/1 -apple-system, system-ui, sans-serif',
+          font: '600 17px/1 -apple-system, system-ui, sans-serif',
           cursor: 'pointer',
         }}
       >
-        ← <GlobeIcon />
+        ← <GlobeIcon size={20} />
       </button>
 
       <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
@@ -201,9 +201,9 @@ export function Story({
   )
 }
 
-function GlobeIcon() {
+function GlobeIcon({ size = 15 }: { size?: number }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <circle cx="12" cy="12" r="10" />
       <line x1="2" y1="12" x2="22" y2="12" />
       <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
