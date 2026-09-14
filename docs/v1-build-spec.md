@@ -41,11 +41,12 @@ De `Indexer` leest `Source Folder`s, stelt de structuur van elke `Memory` voor, 
 
 **Confirmatie-UI** ([#22](https://github.com/marcovandehaar/rememberwhen/issues/22), [#23](https://github.com/marcovandehaar/rememberwhen/issues/23)):
 - Minimale lokale web-UI, door de `Indexer` zelf gestart (geen CLI, geen volwaardige desktop-GUI).
-- Layout: **variant A, zijbalk/master-detail** — overzichtsscherm met meldingen, detailweergave per melding met foto's en de zes afhandel-knoppen. Geen instellingenscherm in v1.
+- Layout: **variant A, zijbalk/master-detail** — overzichtsscherm met meldingen, detailweergave per melding met foto's en de zes afhandel-knoppen.
 - Startpunt: de prototype-branch `prototype/indexer-confirm` (drie varianten gebouwd; A won). Niet op `main` — deze publieke repo gitignored `prototype/`.
 
-**Configuratie**:
+**Configuratie** ([#22](https://github.com/marcovandehaar/rememberwhen/issues/22), [#37](https://github.com/marcovandehaar/rememberwhen/issues/37)):
 - Eén configuratiebestand voor alle `Indexer`-instellingen. Ongeldige configuratie moet duidelijk gemeld worden (geen stille verkeerde default).
+- Herzien: een instellingenscherm erbovenop (Source Folders, Gazetteer, output-locatie, een run starten) is alsnog in v1, in dezelfde lokale web-UI als de Confirmatie-UI hierboven — niet meer v2.
 
 **Media Source** ([#21](https://github.com/marcovandehaar/rememberwhen/issues/21)):
 - Kaal opaak pad-veld op het `Media Item`. Geen abstractielaag tot er een tweede bron bijkomt.
