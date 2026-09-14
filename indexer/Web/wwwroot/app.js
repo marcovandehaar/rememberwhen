@@ -111,7 +111,7 @@ function browseDialog() {
 
         crumbEl.innerHTML = '';
         const up = el(`<button type="button" class="button ghost small">↑ Omhoog</button>`);
-        up.disabled = result.path === null;
+        up.disabled = result.parent === null;
         up.addEventListener('click', () => load(result.parent));
         const label = document.createElement('span');
         label.className = 'hint';
@@ -454,6 +454,10 @@ function renderSettings(settings) {
 
   document.getElementById('output-folder').value = settings.outputFolder;
   document.getElementById('output-folder-resolved').textContent = `Wordt: ${settings.outputFolderResolved}`;
+
+  document.getElementById('source-folders-root').value = settings.sourceFoldersRoot;
+  document.getElementById('source-folders-root-resolved').textContent =
+    settings.sourceFoldersRootResolved ? `Wordt: ${settings.sourceFoldersRootResolved}` : 'Niet ingesteld — "Bladeren…" toont de schijven.';
 }
 
 async function loadGazetteer(settings) {
@@ -524,6 +528,18 @@ document.getElementById('save-output-folder-button').addEventListener('click', a
     const settings = await api('PUT', '/api/settings/output-folder', { path: document.getElementById('output-folder').value });
     renderSettings(settings);
     await loadFolders();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+});
+
+document.getElementById('save-source-folders-root-button').addEventListener('click', async () => {
+  const errorEl = document.getElementById('source-folders-root-error');
+  errorEl.hidden = true;
+  try {
+    const settings = await api('PUT', '/api/settings/source-folders-root', { path: document.getElementById('source-folders-root').value });
+    renderSettings(settings);
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;

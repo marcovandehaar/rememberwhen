@@ -49,9 +49,14 @@ public static class UiServer
 
         app.MapGet("/api/browse", (string? path) =>
         {
+            var config = IndexerConfig.Load(configPath);
+            var root = string.IsNullOrWhiteSpace(config.SourceFoldersRoot)
+                ? null
+                : ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
+
             try
             {
-                return Results.Json(FileSystemBrowser.Browse(path), JsonOptions.Default);
+                return Results.Json(FileSystemBrowser.Browse(path, root), JsonOptions.Default);
             }
             catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException or IOException)
             {
@@ -252,6 +257,26 @@ public static class UiServer
             return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
         });
 
+        app.MapPut("/api/settings/source-folders-root", (PathRequest body) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            if (!string.IsNullOrWhiteSpace(body.Path))
+            {
+                try
+                {
+                    ResolveRelativeToConfig(configPath, body.Path);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    return Results.BadRequest(new ErrorResponse($"Ongeldig pad: {ex.Message}"));
+                }
+            }
+
+            config.SourceFoldersRoot = body.Path ?? "";
+            config.Save(configPath);
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
+        });
+
         app.MapPut("/api/settings/gazetteer-path", (PathRequest body) =>
         {
             if (string.IsNullOrWhiteSpace(body.Path))
@@ -317,10 +342,14 @@ public static class UiServer
         var config = IndexerConfig.Load(configPath);
         var gazetteerPath = ResolveRelativeToConfig(configPath, config.GazetteerPath);
         var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+        var sourceFoldersRootResolved = string.IsNullOrWhiteSpace(config.SourceFoldersRoot)
+            ? null
+            : ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
 
         return new SettingsView(
             config.GazetteerPath, gazetteerPath, File.Exists(gazetteerPath),
-            config.OutputFolder, outputFolder);
+            config.OutputFolder, outputFolder,
+            config.SourceFoldersRoot, sourceFoldersRootResolved);
     }
 
     private static (Gazetteer? Gazetteer, string ResolvedPath, IResult? Error) LoadGazetteer(
@@ -362,7 +391,8 @@ public sealed record FolderView(string Path, bool Exists, IndexedView? Indexed);
 
 public sealed record SettingsView(
     string GazetteerPath, string GazetteerPathResolved, bool GazetteerExists,
-    string OutputFolder, string OutputFolderResolved);
+    string OutputFolder, string OutputFolderResolved,
+    string SourceFoldersRoot, string? SourceFoldersRootResolved);
 
 public sealed record GazetteerView(IReadOnlyDictionary<string, Coordinate> Entries);
 

@@ -48,6 +48,17 @@
       </div>
 
       <section class="sheet-section">
+        <h3>Source Folders-basismap</h3>
+        <p class="hint">Waar "Bladeren…" begint met zoeken — bijvoorbeeld een NAS-share waar al je reismappen onder staan. Leeg laten toont in plaats daarvan de schijven.</p>
+        <div class="row">
+          <input type="text" id="source-folders-root" placeholder="\\vandehaarnas\Fotos" />
+          <button type="button" class="button small" id="save-source-folders-root-button">Opslaan</button>
+        </div>
+        <p id="source-folders-root-resolved" class="hint"></p>
+        <p id="source-folders-root-error" class="error" hidden></p>
+      </section>
+
+      <section class="sheet-section">
         <h3>Gazetteer</h3>
         <p class="hint">Destination-naam → coördinaat. De coördinaat van een Destination volgt altijd uit de naam.</p>
         <div class="row">

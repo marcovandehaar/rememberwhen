@@ -26,6 +26,11 @@ public sealed class IndexerConfig
     public string GazetteerPath { get; set; } = "gazetteer.json";
     public string OutputFolder { get; set; } = "output";
 
+    // Empty means "not configured yet" — the folder picker falls back to
+    // listing drives. Set once (e.g. to a NAS share all Source Folders live
+    // under) and the picker starts there instead, never wandering above it.
+    public string SourceFoldersRoot { get; set; } = "";
+
     public static IndexerConfig Load(string path)
     {
         if (!File.Exists(path)) return new IndexerConfig();

@@ -29,6 +29,7 @@ public class IndexerConfigTests : IDisposable
             SourceFolders = ["C:\\Photos\\Schotland 2010"],
             GazetteerPath = "gazetteer.json",
             OutputFolder = "output",
+            SourceFoldersRoot = "\\\\vandehaarnas\\Fotos",
         };
 
         config.Save(path);
@@ -37,6 +38,7 @@ public class IndexerConfigTests : IDisposable
         Assert.Equal(config.SourceFolders, reloaded.SourceFolders);
         Assert.Equal(config.GazetteerPath, reloaded.GazetteerPath);
         Assert.Equal(config.OutputFolder, reloaded.OutputFolder);
+        Assert.Equal(config.SourceFoldersRoot, reloaded.SourceFoldersRoot);
     }
 
     [Fact]

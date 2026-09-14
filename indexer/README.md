@@ -14,7 +14,7 @@ Starts a local web server (default `http://localhost:5183`) and opens it in your
 - **Reindex an existing folder.** One click, reusing the Memory/Destination name from the first run — no retyping.
 - **Remove an indexed folder.** Drops it from the list and deletes its published photos.
 
-The Gazetteer and output location live behind the settings sheet (gear icon), since they're setup, not part of the daily flow.
+The Gazetteer, output location, and a Source Folders-basismap live behind the settings sheet (gear icon), since they're setup, not part of the daily flow. Setting the basismap to a folder all trips live under — a mounted NAS share, say — points "Bladeren…" there directly instead of the drive list, and it can't wander above it. The Indexer only ever sees the filesystem of the machine it's running on, so this only works when that folder is actually reachable from there (a mapped network drive or UNC path with Windows already holding the credentials — nothing this app manages itself).
 
 All of this is backed by one configuration file, `indexer/config.json` by default — machine-specific (Source Folder paths), so it's gitignored and starts out empty; the UI creates and updates it. An invalid setting (a Source Folder path that no longer exists, a missing Gazetteer file, …) is always reported in the UI, never silently applied.
 

@@ -13,16 +13,22 @@ public sealed record BrowseResult(string? Path, string? Parent, List<BrowseEntry
 // that as a Finder/Explorer-style browser.
 public static class FileSystemBrowser
 {
-    // No path (or the drive list's own "parent") means: show the drives.
-    public static BrowseResult Browse(string? path)
+    // No path means "start over". With a configured root (e.g. a NAS share
+    // all Source Folders live under), that's the root itself, not the drive
+    // list — and navigating up stops there too, rather than escaping onto
+    // drives the root has nothing to do with.
+    public static BrowseResult Browse(string? path, string? root)
     {
-        if (string.IsNullOrEmpty(path)) return new BrowseResult(null, null, ListDrives());
+        var effectivePath = string.IsNullOrEmpty(path) ? root : path;
+        if (string.IsNullOrEmpty(effectivePath)) return new BrowseResult(null, null, ListDrives());
 
-        if (!Directory.Exists(path))
-            throw new DirectoryNotFoundException($"Map bestaat niet: {path}");
+        if (!Directory.Exists(effectivePath))
+            throw new DirectoryNotFoundException($"Map bestaat niet: {effectivePath}");
 
-        var full = Path.GetFullPath(path);
-        var parent = Directory.GetParent(full)?.FullName;
+        var full = Path.GetFullPath(effectivePath);
+        var isRoot = !string.IsNullOrEmpty(root) &&
+                     string.Equals(full.TrimEnd('\\'), Path.GetFullPath(root).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+        var parent = isRoot ? null : Directory.GetParent(full)?.FullName;
 
         List<BrowseEntry> folders;
         try
