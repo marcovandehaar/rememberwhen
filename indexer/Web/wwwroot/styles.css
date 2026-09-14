@@ -18,6 +18,12 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute's job is to hide an element — full stop, regardless
+   of what display value some other class on it also sets. Without this,
+   every class that declares its own display (.row, .sheet-overlay, ...)
+   silently wins over [hidden] and the element stays visible. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -310,7 +316,6 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
   z-index: 50;
   animation: fade-in 0.15s ease;
 }
-.sheet-overlay[hidden] { display: none; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .sheet {

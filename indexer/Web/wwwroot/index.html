@@ -56,6 +56,17 @@
         </div>
         <p id="source-folders-root-resolved" class="hint"></p>
         <p id="source-folders-root-error" class="error" hidden></p>
+
+        <p class="hint" id="nas-credentials-hint" style="margin-top:14px"></p>
+        <div class="row" id="nas-credentials-fields">
+          <input type="text" id="nas-username" placeholder="Gebruikersnaam" autocomplete="off" />
+          <input type="password" id="nas-password" placeholder="Wachtwoord" autocomplete="new-password" />
+          <button type="button" class="button small" id="save-nas-credentials-button">Opslaan</button>
+          <button type="button" class="button ghost small" id="remove-nas-credentials-button" hidden>Verwijderen</button>
+          <button type="button" class="button ghost small" id="test-nas-connection-button">Test verbinding</button>
+        </div>
+        <p id="nas-credentials-error" class="error" hidden></p>
+        <p id="nas-connection-result" class="hint" hidden></p>
       </section>
 
       <section class="sheet-section">

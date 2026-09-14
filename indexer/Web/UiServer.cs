@@ -283,6 +283,63 @@ public static class UiServer
             return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
         });
 
+        app.MapPut("/api/settings/nas-credentials", (NasCredentialsRequest body) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var host = UncHost(config.SourceFoldersRoot);
+            if (host is null)
+                return Results.BadRequest(new ErrorResponse(
+                    "Stel eerst een Source Folders-basismap in met een netwerkpad (\\\\server\\...)."));
+            if (string.IsNullOrWhiteSpace(body.Username))
+                return Results.BadRequest(new ErrorResponse("Gebruikersnaam mag niet leeg zijn."));
+            if (string.IsNullOrWhiteSpace(body.Password))
+                return Results.BadRequest(new ErrorResponse("Wachtwoord mag niet leeg zijn."));
+
+            try
+            {
+                CredentialStore.Save(host, body.Username, body.Password);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new ErrorResponse(ex.Message));
+            }
+
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
+        });
+
+        app.MapDelete("/api/settings/nas-credentials", () =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var host = UncHost(config.SourceFoldersRoot);
+            if (host is not null) CredentialStore.Delete(host);
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
+        });
+
+        app.MapPost("/api/settings/test-connection", () =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var host = UncHost(config.SourceFoldersRoot);
+            if (host is null)
+                return Results.BadRequest(new ErrorResponse(
+                    "Stel eerst een Source Folders-basismap in met een netwerkpad (\\\\server\\...)."));
+
+            var root = ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
+            try
+            {
+                // Directory.Exists swallows UnauthorizedAccessException/IOException and just
+                // returns false, which would mask exactly the failures this button exists to
+                // catch (bad credentials, an unreachable share) behind a generic "not found".
+                // Calling GetDirectories directly lets those specific exceptions surface.
+                var folderCount = Directory.GetDirectories(root).Length;
+                return Results.Json(new TestConnectionResult(
+                    $"Verbinding gelukt — {folderCount} map(pen) gevonden op {host}."));
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException or IOException)
+            {
+                return Results.BadRequest(new ErrorResponse(ex.Message));
+            }
+        });
+
         app.MapPut("/api/settings/gazetteer-path", (PathRequest body) =>
         {
             if (string.IsNullOrWhiteSpace(body.Path))
@@ -351,11 +408,25 @@ public static class UiServer
         var sourceFoldersRootResolved = string.IsNullOrWhiteSpace(config.SourceFoldersRoot)
             ? null
             : ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
+        var nasCredentialsHost = UncHost(config.SourceFoldersRoot);
 
         return new SettingsView(
             config.GazetteerPath, gazetteerPath, File.Exists(gazetteerPath),
             config.OutputFolder, outputFolder,
-            config.SourceFoldersRoot, sourceFoldersRootResolved);
+            config.SourceFoldersRoot, sourceFoldersRootResolved,
+            nasCredentialsHost, nasCredentialsHost is null ? null : CredentialStore.TryGetUsername(nasCredentialsHost));
+    }
+
+    // \\server\share\... -> "server". Null for anything not shaped like a
+    // UNC path (a local drive letter has no server to hold credentials for).
+    private static string? UncHost(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !path.StartsWith(@"\\", StringComparison.Ordinal)) return null;
+
+        var trimmed = path.TrimStart('\\');
+        var separatorIndex = trimmed.IndexOfAny(['\\', '/']);
+        var host = separatorIndex < 0 ? trimmed : trimmed[..separatorIndex];
+        return string.IsNullOrWhiteSpace(host) ? null : host;
     }
 
     private static (Gazetteer? Gazetteer, string ResolvedPath, IResult? Error) LoadGazetteer(
@@ -398,7 +469,12 @@ public sealed record FolderView(string Path, bool Exists, IndexedView? Indexed);
 public sealed record SettingsView(
     string GazetteerPath, string GazetteerPathResolved, bool GazetteerExists,
     string OutputFolder, string OutputFolderResolved,
-    string SourceFoldersRoot, string? SourceFoldersRootResolved);
+    string SourceFoldersRoot, string? SourceFoldersRootResolved,
+    string? NasCredentialsHost, string? NasCredentialsUsername);
+
+public sealed record NasCredentialsRequest(string Username, string Password);
+
+public sealed record TestConnectionResult(string Message);
 
 public sealed record GazetteerView(IReadOnlyDictionary<string, Coordinate> Entries);
 

@@ -458,6 +458,23 @@ function renderSettings(settings) {
   document.getElementById('source-folders-root').value = settings.sourceFoldersRoot;
   document.getElementById('source-folders-root-resolved').textContent =
     settings.sourceFoldersRootResolved ? `Wordt: ${settings.sourceFoldersRootResolved}` : 'Niet ingesteld — "Bladeren…" toont de schijven.';
+
+  const credFields = document.getElementById('nas-credentials-fields');
+  const credHint = document.getElementById('nas-credentials-hint');
+  const removeCredButton = document.getElementById('remove-nas-credentials-button');
+  document.getElementById('nas-connection-result').hidden = true;
+  if (!settings.nasCredentialsHost) {
+    credFields.hidden = true;
+    credHint.textContent = 'Zet de basismap hierboven op een netwerkpad (\\\\server\\...) om inloggegevens op te slaan.';
+  } else {
+    credFields.hidden = false;
+    credHint.textContent = settings.nasCredentialsUsername
+      ? `Ingesteld voor ${settings.nasCredentialsHost} als ${settings.nasCredentialsUsername}.`
+      : `Nog geen inloggegevens opgeslagen voor ${settings.nasCredentialsHost}.`;
+    removeCredButton.hidden = !settings.nasCredentialsUsername;
+    document.getElementById('nas-username').value = settings.nasCredentialsUsername ?? '';
+    document.getElementById('nas-password').value = '';
+  }
 }
 
 async function loadGazetteer(settings) {
@@ -540,6 +557,48 @@ document.getElementById('save-source-folders-root-button').addEventListener('cli
   try {
     const settings = await api('PUT', '/api/settings/source-folders-root', { path: document.getElementById('source-folders-root').value });
     renderSettings(settings);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+});
+
+document.getElementById('save-nas-credentials-button').addEventListener('click', async () => {
+  const errorEl = document.getElementById('nas-credentials-error');
+  errorEl.hidden = true;
+  try {
+    const settings = await api('PUT', '/api/settings/nas-credentials', {
+      username: document.getElementById('nas-username').value,
+      password: document.getElementById('nas-password').value,
+    });
+    renderSettings(settings);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+});
+
+document.getElementById('remove-nas-credentials-button').addEventListener('click', async () => {
+  const errorEl = document.getElementById('nas-credentials-error');
+  errorEl.hidden = true;
+  try {
+    const settings = await api('DELETE', '/api/settings/nas-credentials');
+    renderSettings(settings);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+});
+
+document.getElementById('test-nas-connection-button').addEventListener('click', async () => {
+  const errorEl = document.getElementById('nas-credentials-error');
+  const resultEl = document.getElementById('nas-connection-result');
+  errorEl.hidden = true;
+  resultEl.hidden = true;
+  try {
+    const result = await api('POST', '/api/settings/test-connection');
+    resultEl.textContent = result.message;
+    resultEl.hidden = false;
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
