@@ -8,12 +8,13 @@ Reads one Source Folder and publishes a `catalog.json` plus media derivatives, p
 dotnet run --project indexer
 ```
 
-Starts a local web server (default `http://localhost:5183`) and opens it in your default browser. From there the operator can, without hand-editing any file:
+Starts a local web server (default `http://localhost:5183`) and opens it in your default browser. The screen is built around three workflows:
 
-- Add, view and remove Source Folders.
-- Add, edit and remove Gazetteer entries (Destination name → coordinate).
-- Set the output location.
-- Start an indexing run against a configured Source Folder, with progress and the result shown in the page.
+- **Add a folder and index it.** Add a Source Folder, name the Memory and Destination, and index it — progress and any notices stream live, and the result is a thumbnail review grid where a stray photo (the odd one that doesn't belong) can be removed with a click. That removal only affects the current result, though — a later reindex rereads the Source Folder from scratch and brings it back, so a permanent fix means removing the file from the folder itself.
+- **Reindex an existing folder.** One click, reusing the Memory/Destination name from the first run — no retyping.
+- **Remove an indexed folder.** Drops it from the list and deletes its published photos.
+
+The Gazetteer and output location live behind the settings sheet (gear icon), since they're setup, not part of the daily flow.
 
 All of this is backed by one configuration file, `indexer/config.json` by default — machine-specific (Source Folder paths), so it's gitignored and starts out empty; the UI creates and updates it. An invalid setting (a Source Folder path that no longer exists, a missing Gazetteer file, …) is always reported in the UI, never silently applied.
 

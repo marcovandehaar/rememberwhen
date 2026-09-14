@@ -7,9 +7,22 @@ namespace Indexer.Config;
 // calls for (#22, #37): Source Folders, the Gazetteer path, and the output
 // location. Starts empty on disk — unlike the Gazetteer, there is nothing
 // to seed by hand before the settings UI can be used.
+// One Source Folder maps to at most one published Memory. Recorded here so
+// the settings UI can offer "reindex" and "remove" on something already
+// published, rather than only ever offering a first-time index.
+public sealed class IndexedFolder
+{
+    public required string SourceFolder { get; set; }
+    public required string MemoryId { get; set; }
+    public required string MemoryName { get; set; }
+    public required string DestinationName { get; set; }
+    public DateTimeOffset IndexedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class IndexerConfig
 {
     public List<string> SourceFolders { get; set; } = [];
+    public List<IndexedFolder> IndexedFolders { get; set; } = [];
     public string GazetteerPath { get; set; } = "gazetteer.json";
     public string OutputFolder { get; set; } = "output";
 
@@ -33,5 +46,27 @@ public sealed class IndexerConfig
         if (!SourceFolders.Contains(path)) SourceFolders.Add(path);
     }
 
-    public void RemoveSourceFolder(string path) => SourceFolders.Remove(path);
+    public void RemoveSourceFolder(string path)
+    {
+        SourceFolders.Remove(path);
+        ForgetIndexed(path);
+    }
+
+    public IndexedFolder? FindIndexed(string sourceFolder) =>
+        IndexedFolders.FirstOrDefault(f => f.SourceFolder == sourceFolder);
+
+    public void RecordIndexed(string sourceFolder, string memoryId, string memoryName, string destinationName)
+    {
+        ForgetIndexed(sourceFolder);
+        IndexedFolders.Add(new IndexedFolder
+        {
+            SourceFolder = sourceFolder,
+            MemoryId = memoryId,
+            MemoryName = memoryName,
+            DestinationName = destinationName,
+        });
+    }
+
+    public void ForgetIndexed(string sourceFolder) =>
+        IndexedFolders.RemoveAll(f => f.SourceFolder == sourceFolder);
 }

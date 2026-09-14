@@ -84,4 +84,66 @@ public class IndexerConfigTests : IDisposable
 
         Assert.Empty(config.SourceFolders);
     }
+
+    [Fact]
+    public void Recording_an_indexed_folder_makes_it_findable()
+    {
+        var config = new IndexerConfig();
+
+        config.RecordIndexed("C:\\Photos\\Schotland 2010", "schotland-2010", "Schotland 2010", "Schotland");
+
+        var indexed = config.FindIndexed("C:\\Photos\\Schotland 2010");
+        Assert.NotNull(indexed);
+        Assert.Equal("schotland-2010", indexed!.MemoryId);
+        Assert.Equal("Schotland 2010", indexed.MemoryName);
+        Assert.Equal("Schotland", indexed.DestinationName);
+    }
+
+    [Fact]
+    public void Recording_an_indexed_folder_twice_replaces_the_previous_record()
+    {
+        var config = new IndexerConfig();
+        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", "X");
+
+        config.RecordIndexed("C:\\Photos\\X", "x-2011", "X 2011", "X");
+
+        var indexed = config.FindIndexed("C:\\Photos\\X");
+        Assert.Equal("x-2011", indexed!.MemoryId);
+        Assert.Single(config.IndexedFolders);
+    }
+
+    [Fact]
+    public void An_unindexed_folder_is_not_found()
+    {
+        var config = new IndexerConfig();
+
+        Assert.Null(config.FindIndexed("C:\\Photos\\Never Indexed"));
+    }
+
+    [Fact]
+    public void Removing_a_source_folder_also_forgets_its_indexed_record()
+    {
+        var config = new IndexerConfig { SourceFolders = ["C:\\Photos\\X"] };
+        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", "X");
+
+        config.RemoveSourceFolder("C:\\Photos\\X");
+
+        Assert.Null(config.FindIndexed("C:\\Photos\\X"));
+    }
+
+    [Fact]
+    public void Indexed_records_round_trip_through_save_and_load()
+    {
+        var path = Path.Combine(_root, "config.json");
+        Directory.CreateDirectory(_root);
+        var config = new IndexerConfig();
+        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", "X");
+
+        config.Save(path);
+        var reloaded = IndexerConfig.Load(path);
+
+        var indexed = reloaded.FindIndexed("C:\\Photos\\X");
+        Assert.NotNull(indexed);
+        Assert.Equal("x-2010", indexed!.MemoryId);
+    }
 }

@@ -1,16 +1,15 @@
 // Vanilla JS on purpose: this is a local, operator-only admin screen, not
 // the iPad-facing app — no build step earns its keep here.
 
-const tabs = document.querySelectorAll('.tab');
-const panels = document.querySelectorAll('.tab-panel');
-tabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
-    tabs.forEach((t) => t.classList.remove('active'));
-    panels.forEach((p) => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
-  });
-});
+const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 4.98 4.98 6.4 10.59 12l-5.6 5.6 1.4 1.4 5.6-5.58 5.6 5.6 1.4-1.42-5.58-5.6 5.6-5.6-1.42-1.4-5.6 5.6z"/></svg>';
+const FOLDER_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg>';
+const WARN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1 21h22L12 3Zm0 6 6.5 10.5h-13L12 9Zm-.9 3v3.5h1.8V12h-1.8Zm0 4.5V18h1.8v-1.5h-1.8Z"/></svg>';
+
+let folders = [];
+let selectedPath = null;
+let activeRun = null; // { path, runId, status, log }
+const attempts = {}; // path -> { memoryName, destinationName, error } — survives a failed run so nothing needs retyping
+const lastNotices = {}; // path -> string[] — non-fatal log lines from the most recent successful run this session
 
 async function api(method, path, body) {
   const response = await fetch(path, {
@@ -19,236 +18,430 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(data?.error ?? `Onverwachte fout (${response.status}).`);
-  }
+  if (!response.ok) throw new Error(data?.error ?? `Onverwachte fout (${response.status}).`);
   return data;
 }
 
-function showError(el, message) {
-  el.textContent = message;
-  el.hidden = false;
+function el(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
 }
 
-function clearError(el) {
-  el.hidden = true;
-  el.textContent = '';
+function formatDate(iso) {
+  return new Date(iso).toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-let currentConfig = null;
-
-async function loadConfig() {
-  currentConfig = await api('GET', '/api/config');
-  renderSourceFolders();
-  renderGazetteerPath();
-  renderOutputFolder();
-  renderRunSourceFolderOptions();
-  await loadGazetteer();
+function leafName(path) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-function renderSourceFolders() {
-  const list = document.getElementById('source-folders');
+// Replaces confirm() with something that actually looks like part of this
+// app instead of OS chrome — reuses the settings sheet's visual language.
+function confirmDialog({ title, message, confirmLabel }) {
+  return new Promise((resolve) => {
+    const dialog = el(`
+      <div class="sheet-overlay">
+        <div class="sheet" style="max-width:400px">
+          <div class="sheet-section" style="border-top:none">
+            <h3>${title}</h3>
+            <p class="hint" style="margin-top:8px">${message}</p>
+            <div class="row" style="justify-content:flex-end;margin-top:18px">
+              <button type="button" class="button ghost small" id="dialog-cancel">Annuleren</button>
+              <button type="button" class="button danger small" id="dialog-confirm" style="border-color:var(--danger);background:var(--danger);color:#fff">${confirmLabel}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    document.body.append(dialog);
+    const finish = (result) => { dialog.remove(); resolve(result); };
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) finish(false); });
+    dialog.querySelector('#dialog-cancel').addEventListener('click', () => finish(false));
+    dialog.querySelector('#dialog-confirm').addEventListener('click', () => finish(true));
+  });
+}
+
+/* ============================================================= sidebar */
+
+async function loadFolders({ preserveSelection = true } = {}) {
+  folders = await api('GET', '/api/folders');
+  if (!preserveSelection || !folders.some((f) => f.path === selectedPath)) {
+    selectedPath = folders[0]?.path ?? null;
+  }
+  renderSidebar();
+  renderDetail();
+}
+
+function renderSidebar() {
+  const list = document.getElementById('folder-list');
+  const empty = document.getElementById('folder-list-empty');
   list.innerHTML = '';
-  for (const folder of currentConfig.sourceFolders) {
-    const li = document.createElement('li');
-    const path = document.createElement('span');
-    path.className = 'path';
-    path.textContent = folder.path;
-    const badge = document.createElement('span');
-    badge.className = `badge ${folder.exists ? 'ok' : 'missing'}`;
-    badge.textContent = folder.exists ? 'bestaat' : 'pad niet gevonden';
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.textContent = 'Verwijderen';
-    removeButton.addEventListener('click', async () => {
-      currentConfig = await api('DELETE', `/api/config/source-folders?path=${encodeURIComponent(folder.path)}`);
-      renderSourceFolders();
-      renderRunSourceFolderOptions();
+  empty.hidden = folders.length > 0;
+
+  for (const folder of folders) {
+    const leaf = leafName(folder.path);
+    const item = el(`<li class="folder-item ${folder.path === selectedPath ? 'active' : ''}">
+      <div class="folder-thumb ${folder.exists ? '' : 'missing'}"></div>
+      <div class="folder-item-text">
+        <strong></strong>
+        <span class="meta ${folder.exists ? '' : 'missing'}"></span>
+      </div>
+    </li>`);
+
+    item.querySelector('strong').textContent = leaf;
+    const thumb = item.querySelector('.folder-thumb');
+    if (!folder.exists) {
+      thumb.innerHTML = WARN_ICON;
+    } else if (folder.indexed) {
+      thumb.style.backgroundImage = `url(${folder.indexed.coverUrl})`;
+    } else {
+      thumb.innerHTML = FOLDER_ICON;
+    }
+
+    const meta = item.querySelector('.meta');
+    if (!folder.exists) meta.textContent = 'Map niet gevonden';
+    else if (folder.indexed) meta.textContent = `${folder.indexed.destinationName} · ${folder.indexed.mediaItems.length} foto's`;
+    else meta.textContent = 'Nog niet geïndexeerd';
+
+    item.addEventListener('click', () => {
+      selectedPath = folder.path;
+      renderSidebar();
+      renderDetail();
     });
-    li.append(path, badge, removeButton);
-    list.append(li);
+    list.append(item);
   }
 }
 
-function renderGazetteerPath() {
-  document.getElementById('gazetteer-path').textContent = currentConfig.gazetteerPathResolved;
-  document.getElementById('create-gazetteer-button').hidden = currentConfig.gazetteerExists;
-  const missing = document.getElementById('gazetteer-missing');
-  if (currentConfig.gazetteerExists) {
-    missing.hidden = true;
+/* ============================================================= add folder */
+
+const addForm = document.getElementById('add-folder-form');
+const addInput = document.getElementById('add-folder-path');
+const addError = document.getElementById('add-folder-error');
+
+document.getElementById('add-folder-button').addEventListener('click', () => {
+  addForm.hidden = !addForm.hidden;
+  if (!addForm.hidden) addInput.focus();
+});
+
+addInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { addForm.hidden = true; addInput.value = ''; addError.hidden = true; }
+});
+
+addForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const path = addInput.value.trim();
+  if (!path) return;
+  addError.hidden = true;
+  try {
+    await api('POST', '/api/folders', { path });
+    addInput.value = '';
+    addForm.hidden = true;
+    selectedPath = path;
+    await loadFolders();
+  } catch (err) {
+    addError.textContent = err.message;
+    addError.hidden = false;
+  }
+});
+
+/* ============================================================= detail pane */
+
+function renderDetail() {
+  const detail = document.getElementById('detail');
+  const folder = folders.find((f) => f.path === selectedPath);
+
+  if (!folder) {
+    detail.innerHTML = '<div class="empty-state centered"><p>Selecteer een map, of voeg er een toe.</p></div>';
+    return;
+  }
+
+  if (activeRun && activeRun.path === folder.path) {
+    renderRunningDetail(detail, folder);
+  } else if (folder.indexed) {
+    renderIndexedDetail(detail, folder);
   } else {
-    showError(missing, `Gazetteer niet gevonden op ${currentConfig.gazetteerPathResolved}.`);
+    renderUnindexedDetail(detail, folder);
   }
 }
 
-function renderOutputFolder() {
-  document.getElementById('output-folder').value = currentConfig.outputFolder;
-  document.getElementById('output-folder-resolved').textContent =
-    `Wordt: ${currentConfig.outputFolderResolved}`;
+function renderUnindexedDetail(detail, folder) {
+  const leaf = folder.path.split(/[\\/]/).filter(Boolean).pop() ?? folder.path;
+  const attempt = attempts[folder.path];
+  detail.innerHTML = `
+    <div class="detail-head"><h2>${leaf}</h2></div>
+    <p class="detail-path">${folder.path}</p>
+    <div class="detail-sub">${folder.exists ? 'Nog niet geïndexeerd.' : 'Deze map bestaat niet (meer) op deze locatie.'}</div>
+    ${attempt?.error ? `<p class="error" style="max-width:480px">Indexeren mislukt: ${attempt.error}</p>` : ''}
+    ${folder.exists ? `
+      <div class="field"><label for="memory-name">Memory-naam</label><input type="text" id="memory-name" placeholder="Zeeland 2016" value="${attempt?.memoryName ?? ''}" /></div>
+      <div class="field"><label for="destination-name">Destination-naam</label><input type="text" id="destination-name" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" /></div>
+      <button type="button" class="button" id="index-button">Indexeer</button>
+      <p class="error" id="index-error" hidden></p>
+    ` : ''}
+    <div style="margin-top:24px">
+      <button type="button" class="button danger small" id="remove-folder-button">Map verwijderen</button>
+    </div>
+  `;
+
+  const indexButton = document.getElementById('index-button');
+  if (indexButton) {
+    indexButton.addEventListener('click', async () => {
+      const errorEl = document.getElementById('index-error');
+      errorEl.hidden = true;
+      const memoryName = document.getElementById('memory-name').value.trim();
+      const destinationName = document.getElementById('destination-name').value.trim();
+      if (!memoryName || !destinationName) {
+        errorEl.textContent = 'Vul zowel een Memory-naam als een Destination-naam in.';
+        errorEl.hidden = false;
+        return;
+      }
+      try {
+        await startIndex(folder.path, memoryName, destinationName);
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+      }
+    });
+  }
+
+  document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
 }
 
-function renderRunSourceFolderOptions() {
-  const select = document.getElementById('run-source-folder');
-  select.innerHTML = '';
-  for (const folder of currentConfig.sourceFolders) {
-    const option = document.createElement('option');
-    option.value = folder.path;
-    option.textContent = folder.exists ? folder.path : `${folder.path} (pad niet gevonden)`;
-    option.disabled = !folder.exists;
-    select.append(option);
+async function startIndex(path, memoryName, destinationName) {
+  attempts[path] = { memoryName, destinationName };
+  const { runId } = await api('POST', '/api/folders/index', { path, memoryName, destinationName });
+  activeRun = { path, runId, status: 'running', log: [] };
+  renderDetail();
+  pollRun();
+}
+
+function renderRunningDetail(detail, folder) {
+  detail.innerHTML = `
+    <div class="detail-head"><h2>${leafName(folder.path)}</h2></div>
+    <div class="detail-sub"><span class="spinner"></span>Bezig met indexeren…</div>
+    <div class="log-box" id="run-log"></div>
+  `;
+  document.getElementById('run-log').textContent = activeRun.log.join('\n');
+}
+
+async function pollRun() {
+  const run = activeRun;
+  if (!run) return;
+
+  try {
+    const state = await api('GET', `/api/runs/${run.runId}`);
+    if (activeRun !== run) return; // superseded by a newer run/selection
+
+    run.log = state.log;
+    run.status = state.status;
+
+    if (state.status === 'running') {
+      renderDetail();
+      setTimeout(pollRun, 400);
+      return;
+    }
+
+    if (state.status === 'failed') {
+      attempts[run.path] = { ...attempts[run.path], error: state.error };
+    } else {
+      delete attempts[run.path];
+      // The final "Catalogus bijgewerkt: ..." line just confirms success; only
+      // earlier lines (skipped files, timestamp fallbacks, ...) are worth surfacing.
+      lastNotices[run.path] = state.log.slice(0, -1);
+    }
+
+    await loadFolders();
+    activeRun = null;
+    renderDetail();
+  } catch (err) {
+    attempts[run.path] = { ...attempts[run.path], error: err.message };
+    activeRun = null;
+    renderDetail();
   }
 }
 
-async function loadGazetteer() {
+function renderIndexedDetail(detail, folder) {
+  const idx = folder.indexed;
+  const reindexError = attempts[folder.path]?.error;
+  const notices = lastNotices[folder.path] ?? [];
+
+  detail.innerHTML = `
+    <div class="detail-head">
+      <div>
+        <h2>${idx.destinationName}</h2>
+        <div class="detail-sub">${idx.memoryName} · ${idx.mediaItems.length} foto's · geïndexeerd op ${formatDate(idx.indexedAt)}</div>
+      </div>
+      <div class="detail-actions">
+        <button type="button" class="button ghost small" id="reindex-button">Herindexeren</button>
+        <button type="button" class="button danger small" id="remove-folder-button">Verwijderen</button>
+      </div>
+    </div>
+    ${reindexError ? `<p class="error" style="max-width:480px">Herindexeren mislukt: ${reindexError}</p>` : ''}
+    ${notices.length > 0 ? `
+      <details class="notices">
+        <summary>${notices.length} melding${notices.length === 1 ? '' : 'en'} tijdens het indexeren</summary>
+        <ul>${notices.map((line) => `<li>${line}</li>`).join('')}</ul>
+      </details>
+    ` : ''}
+    <p class="media-caption">Een foto hier verwijderen past alleen dit resultaat aan — bij herindexeren verschijnen alle foto's uit de map weer.</p>
+    <div class="media-grid" id="media-grid"></div>
+    <p class="error" id="media-item-error" style="max-width:480px" hidden></p>
+  `;
+
+  const grid = document.getElementById('media-grid');
+  for (const item of idx.mediaItems) {
+    const tile = el(`<div class="media-tile"></div>`);
+    if (item.type === 'video') {
+      tile.innerHTML = `<video src="${item.url}" muted></video>`;
+    } else {
+      tile.innerHTML = `<img src="${item.url}" loading="lazy" alt="" />`;
+    }
+    if (item.isCover) {
+      tile.append(el('<span class="cover-badge">Cover</span>'));
+    } else {
+      const removeButton = el(`<button type="button" class="remove-item" title="Verwijder deze foto">${REMOVE_ICON}</button>`);
+      removeButton.addEventListener('click', () => removeMediaItem(idx.memoryId, item.id, tile));
+      tile.append(removeButton);
+    }
+    grid.append(tile);
+  }
+
+  document.getElementById('reindex-button').addEventListener('click', () => startIndex(folder.path));
+  document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
+}
+
+async function removeMediaItem(memoryId, itemId, tile) {
+  const errorEl = document.getElementById('media-item-error');
+  errorEl.hidden = true;
+  tile.style.opacity = '0.4';
+  try {
+    await api('DELETE', `/api/media-items?memoryId=${encodeURIComponent(memoryId)}&itemId=${encodeURIComponent(itemId)}`);
+    await loadFolders();
+  } catch (err) {
+    tile.style.opacity = '1';
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+}
+
+async function removeFolder(folder) {
+  const label = leafName(folder.path);
+  const message = folder.indexed
+    ? `Dit verwijdert ook de gepubliceerde foto's van deze reis.`
+    : `"${label}" wordt uit de lijst verwijderd.`;
+  const confirmed = await confirmDialog({ title: `"${label}" verwijderen?`, message, confirmLabel: 'Verwijderen' });
+  if (!confirmed) return;
+
+  await api('DELETE', `/api/folders?path=${encodeURIComponent(folder.path)}`);
+  delete attempts[folder.path];
+  delete lastNotices[folder.path];
+  await loadFolders({ preserveSelection: false });
+}
+
+/* ============================================================= settings sheet */
+
+const overlay = document.getElementById('settings-overlay');
+
+document.getElementById('open-settings').addEventListener('click', openSettings);
+document.getElementById('close-settings').addEventListener('click', closeSettings);
+overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSettings(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.hidden) closeSettings(); });
+
+async function openSettings() {
+  overlay.hidden = false;
+  const settings = await api('GET', '/api/settings');
+  renderSettings(settings);
+  await loadGazetteer(settings);
+}
+
+function closeSettings() {
+  overlay.hidden = true;
+}
+
+function renderSettings(settings) {
+  document.getElementById('gazetteer-path').textContent = settings.gazetteerPathResolved;
+  document.getElementById('create-gazetteer-button').hidden = settings.gazetteerExists;
+  const missing = document.getElementById('gazetteer-missing');
+  missing.hidden = settings.gazetteerExists;
+  if (!settings.gazetteerExists) missing.textContent = `Gazetteer niet gevonden op ${settings.gazetteerPathResolved}.`;
+
+  document.getElementById('output-folder').value = settings.outputFolder;
+  document.getElementById('output-folder-resolved').textContent = `Wordt: ${settings.outputFolderResolved}`;
+}
+
+async function loadGazetteer(settings) {
   const rows = document.getElementById('gazetteer-rows');
   rows.innerHTML = '';
-  if (!currentConfig.gazetteerExists) return;
+  if (!settings.gazetteerExists) return;
 
   const { entries } = await api('GET', '/api/gazetteer');
   for (const [name, coord] of Object.entries(entries)) {
-    const tr = document.createElement('tr');
-    const nameTd = document.createElement('td');
-    nameTd.textContent = name;
-    const latTd = document.createElement('td');
-    latTd.textContent = coord.lat;
-    const lonTd = document.createElement('td');
-    lonTd.textContent = coord.lon;
-    const actionTd = document.createElement('td');
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.textContent = 'Bewerken';
-    editButton.addEventListener('click', () => {
+    const tr = el(`<tr>
+      <td></td><td></td><td></td>
+      <td class="actions"><button class="edit">Bewerken</button><button class="remove">Verwijderen</button></td>
+    </tr>`);
+    tr.children[0].textContent = name;
+    tr.children[1].textContent = coord.lat;
+    tr.children[2].textContent = coord.lon;
+    tr.querySelector('.edit').addEventListener('click', () => {
       document.getElementById('gazetteer-name').value = name;
       document.getElementById('gazetteer-lat').value = coord.lat;
       document.getElementById('gazetteer-lon').value = coord.lon;
       document.getElementById('gazetteer-name').focus();
     });
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.textContent = 'Verwijderen';
-    removeButton.addEventListener('click', async () => {
+    tr.querySelector('.remove').addEventListener('click', async () => {
       await api('DELETE', `/api/gazetteer/entries/${encodeURIComponent(name)}`);
-      await loadGazetteer();
+      await loadGazetteer(await api('GET', '/api/settings'));
     });
-    actionTd.append(editButton, removeButton);
-    tr.append(nameTd, latTd, lonTd, actionTd);
     rows.append(tr);
   }
 }
 
-document.getElementById('add-source-folder-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const input = document.getElementById('add-source-folder-path');
-  const errorEl = document.getElementById('source-folder-error');
-  clearError(errorEl);
-  try {
-    currentConfig = await api('POST', '/api/config/source-folders', { path: input.value });
-    input.value = '';
-    renderSourceFolders();
-    renderRunSourceFolderOptions();
-  } catch (err) {
-    showError(errorEl, err.message);
-  }
-});
-
 document.getElementById('edit-gazetteer-path-button').addEventListener('click', async () => {
-  const next = prompt('Pad naar gazetteer.json:', currentConfig.gazetteerPath);
+  const current = await api('GET', '/api/settings');
+  const next = prompt('Pad naar gazetteer.json:', current.gazetteerPath);
   if (next === null) return;
-  currentConfig = await api('PUT', '/api/config/gazetteer-path', { path: next });
-  renderGazetteerPath();
-  await loadGazetteer();
+  const settings = await api('PUT', '/api/settings/gazetteer-path', { path: next });
+  renderSettings(settings);
+  await loadGazetteer(settings);
+  await loadFolders();
 });
 
 document.getElementById('create-gazetteer-button').addEventListener('click', async () => {
-  currentConfig = await api('POST', '/api/config/gazetteer-file');
-  renderGazetteerPath();
-  await loadGazetteer();
+  const settings = await api('POST', '/api/settings/gazetteer-file');
+  renderSettings(settings);
+  await loadGazetteer(settings);
 });
 
-document.getElementById('add-gazetteer-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
+document.getElementById('add-gazetteer-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
   const errorEl = document.getElementById('gazetteer-error');
-  clearError(errorEl);
+  errorEl.hidden = true;
   const name = document.getElementById('gazetteer-name');
   const lat = document.getElementById('gazetteer-lat');
   const lon = document.getElementById('gazetteer-lon');
   try {
-    await api('PUT', '/api/gazetteer/entries', {
-      name: name.value,
-      lat: parseFloat(lat.value),
-      lon: parseFloat(lon.value),
-    });
-    name.value = '';
-    lat.value = '';
-    lon.value = '';
-    await loadGazetteer();
+    await api('PUT', '/api/gazetteer/entries', { name: name.value, lat: parseFloat(lat.value), lon: parseFloat(lon.value) });
+    name.value = ''; lat.value = ''; lon.value = '';
+    await loadGazetteer(await api('GET', '/api/settings'));
   } catch (err) {
-    showError(errorEl, err.message);
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
   }
 });
 
 document.getElementById('save-output-folder-button').addEventListener('click', async () => {
   const errorEl = document.getElementById('output-folder-error');
-  clearError(errorEl);
+  errorEl.hidden = true;
   try {
-    currentConfig = await api('PUT', '/api/config/output-folder', {
-      path: document.getElementById('output-folder').value,
-    });
-    renderOutputFolder();
+    const settings = await api('PUT', '/api/settings/output-folder', { path: document.getElementById('output-folder').value });
+    renderSettings(settings);
+    await loadFolders();
   } catch (err) {
-    showError(errorEl, err.message);
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
   }
 });
 
-document.getElementById('run-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const errorEl = document.getElementById('run-error');
-  clearError(errorEl);
-  const startButton = document.getElementById('run-start-button');
-  const statusBox = document.getElementById('run-status');
-  const statusText = document.getElementById('run-status-text');
-  const logEl = document.getElementById('run-log');
-
-  const body = {
-    sourceFolder: document.getElementById('run-source-folder').value,
-    memoryName: document.getElementById('run-memory-name').value,
-    destinationName: document.getElementById('run-destination-name').value,
-  };
-
-  try {
-    startButton.disabled = true;
-    statusBox.hidden = false;
-    statusText.textContent = 'running';
-    logEl.textContent = '';
-
-    const { runId } = await api('POST', '/api/runs', body);
-    await pollRun(runId, statusText, logEl);
-  } catch (err) {
-    showError(errorEl, err.message);
-  } finally {
-    startButton.disabled = false;
-  }
-});
-
-async function pollRun(runId, statusText, logEl) {
-  for (;;) {
-    const state = await api('GET', `/api/runs/${runId}`);
-    statusText.textContent = state.status;
-    logEl.textContent = state.log.join('\n');
-    logEl.scrollTop = logEl.scrollHeight;
-
-    if (state.status === 'running') {
-      await new Promise((resolve) => setTimeout(resolve, 750));
-      continue;
-    }
-
-    if (state.status === 'failed') {
-      logEl.textContent += `\n\nFout: ${state.error}`;
-    } else if (state.status === 'succeeded') {
-      logEl.textContent += `\n\nCatalogus: ${state.catalogPath}`;
-    }
-    return;
-  }
-}
-
-loadConfig();
+loadFolders();

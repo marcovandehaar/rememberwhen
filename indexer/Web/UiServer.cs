@@ -1,10 +1,10 @@
 using System.IO;
-using System.Text.Json;
 using Indexer.Catalog;
 using Indexer.Config;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
 
 namespace Indexer.Web;
@@ -12,9 +12,13 @@ namespace Indexer.Web;
 // The local web-UI docs/v1-build-spec.md's Configuratie section calls for
 // (#22, #37): the Indexer starts this itself, serving both the settings
 // screen this ticket builds and — sharing this same scaffold — the
-// confirmation screen #34 adds later.
+// confirmation screen #34 adds later. The primary surface is folder-centric
+// (add & index, reindex, remove) rather than a form-per-setting screen;
+// the Gazetteer and output location live behind a secondary settings sheet.
 public static class UiServer
 {
+    private static readonly FileExtensionContentTypeProvider ContentTypes = new();
+
     public static void Run(string configPath, string url)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -30,9 +34,22 @@ public static class UiServer
         app.UseDefaultFiles();
         app.UseStaticFiles();
 
-        app.MapGet("/api/config", () => Results.Json(BuildConfigView(configPath), JsonOptions.Default));
+        // Media derivatives live under the (configurable, arbitrary) output
+        // folder, not under wwwroot, so they need their own route.
+        app.MapGet("/media/{fileName}", (string fileName) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var mediaDir = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "media");
+            var fullPath = Path.Combine(mediaDir, Path.GetFileName(fileName));
+            if (!File.Exists(fullPath)) return Results.NotFound();
 
-        app.MapPost("/api/config/source-folders", (SourceFolderRequest body) =>
+            ContentTypes.TryGetContentType(fullPath, out var contentType);
+            return Results.File(fullPath, contentType ?? "application/octet-stream");
+        });
+
+        app.MapGet("/api/folders", () => Results.Json(BuildFolderViews(configPath), JsonOptions.Default));
+
+        app.MapPost("/api/folders", (PathRequest body) =>
         {
             var config = IndexerConfig.Load(configPath);
             try
@@ -45,58 +62,122 @@ public static class UiServer
             }
 
             config.Save(configPath);
-            return Results.Json(BuildConfigView(configPath), JsonOptions.Default);
+            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
         });
 
-        app.MapDelete("/api/config/source-folders", (string path) =>
+        app.MapDelete("/api/folders", (string path) =>
         {
             var config = IndexerConfig.Load(configPath);
+            var indexed = config.FindIndexed(path);
+            if (indexed is not null)
+            {
+                var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+                var catalogPath = Path.Combine(outputFolder, "catalog.json");
+                var catalog = CatalogStore.Load(catalogPath);
+                var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
+
+                CatalogStore.Save(CatalogStore.RemoveMemory(catalog, indexed.MemoryId), catalogPath);
+                if (memory is not null)
+                    CatalogStore.DeleteMediaFilesForMemory(Path.Combine(outputFolder, "media"), memory);
+            }
+
             config.RemoveSourceFolder(path);
             config.Save(configPath);
-            return Results.Json(BuildConfigView(configPath), JsonOptions.Default);
+            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
         });
 
-        app.MapPut("/api/config/output-folder", (PathRequest body) =>
+        app.MapPost("/api/folders/index", (IndexFolderRequest body) =>
         {
-            if (string.IsNullOrWhiteSpace(body.Path))
-                return Results.BadRequest(new ErrorResponse("Output-locatie mag niet leeg zijn."));
+            var config = IndexerConfig.Load(configPath);
 
-            try
+            if (string.IsNullOrWhiteSpace(body.Path) || !config.SourceFolders.Contains(body.Path))
+                return Results.BadRequest(new ErrorResponse("Kies een geconfigureerde Source Folder."));
+            if (!Directory.Exists(body.Path))
+                return Results.BadRequest(new ErrorResponse($"Source Folder bestaat niet meer: {body.Path}"));
+
+            var existing = config.FindIndexed(body.Path);
+            var memoryName = string.IsNullOrWhiteSpace(body.MemoryName) ? existing?.MemoryName : body.MemoryName;
+            var destinationName = string.IsNullOrWhiteSpace(body.DestinationName) ? existing?.DestinationName : body.DestinationName;
+
+            if (string.IsNullOrWhiteSpace(memoryName))
+                return Results.BadRequest(new ErrorResponse("Memory-naam mag niet leeg zijn."));
+            if (string.IsNullOrWhiteSpace(destinationName))
+                return Results.BadRequest(new ErrorResponse("Destination-naam mag niet leeg zijn."));
+
+            var newMemoryId = Slug.From(memoryName);
+            var collision = config.IndexedFolders.FirstOrDefault(f => f.MemoryId == newMemoryId && f.SourceFolder != body.Path);
+            if (collision is not null)
+                return Results.BadRequest(new ErrorResponse(
+                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolder}). Kies een andere Memory-naam."));
+
+            var (_, gazetteerPath, error) = LoadGazetteer(configPath,
+                r => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {r}. Configureer 'm eerst.")));
+            if (error is not null) return error;
+
+            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var mediaDir = Path.Combine(outputFolder, "media");
+            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+
+            var run = runs.Start(state =>
             {
-                ResolveRelativeToConfig(configPath, body.Path);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                return Results.BadRequest(new ErrorResponse($"Ongeldig pad: {ex.Message}"));
-            }
+                // Build before touching anything already published: if this
+                // throws (e.g. an unseeded Gazetteer entry), the previous
+                // successful publish for this Source Folder must survive
+                // untouched — never delete a working result before knowing
+                // its replacement actually landed.
+                var log = new RunLogWriter(state);
+                var gazetteer = Gazetteer.Load(gazetteerPath);
+                var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, log);
+                var newMemory = built.Memories[0];
 
-            var config = IndexerConfig.Load(configPath);
-            config.OutputFolder = body.Path;
-            config.Save(configPath);
-            return Results.Json(BuildConfigView(configPath), JsonOptions.Default);
+                var existingCatalog = CatalogStore.Load(catalogPath);
+                if (existing is not null && existing.MemoryId != newMemory.Id)
+                {
+                    var oldMemory = existingCatalog.Memories.FirstOrDefault(m => m.Id == existing.MemoryId);
+                    existingCatalog = CatalogStore.RemoveMemory(existingCatalog, existing.MemoryId);
+                    if (oldMemory is not null) CatalogStore.DeleteMediaFilesForMemory(mediaDir, oldMemory);
+                }
+                CatalogStore.PruneStaleMediaFiles(mediaDir, newMemory);
+
+                var merged = CatalogStore.Replace(existingCatalog, newMemory);
+                CatalogStore.Save(merged, catalogPath);
+
+                var freshConfig = IndexerConfig.Load(configPath);
+                freshConfig.RecordIndexed(body.Path, newMemory.Id, memoryName, destinationName);
+                freshConfig.Save(configPath);
+
+                state.AppendLog($"Catalogus bijgewerkt: {catalogPath}");
+                state.MarkSucceeded(catalogPath);
+            });
+
+            return Results.Json(new { runId = run.Id }, JsonOptions.Default);
         });
 
-        app.MapPut("/api/config/gazetteer-path", (PathRequest body) =>
+        app.MapGet("/api/runs/{id}", (string id) =>
         {
-            if (string.IsNullOrWhiteSpace(body.Path))
-                return Results.BadRequest(new ErrorResponse("Gazetteer-pad mag niet leeg zijn."));
+            var run = runs.Get(id);
+            if (run is null) return Results.NotFound(new ErrorResponse("Onbekende run."));
 
-            var config = IndexerConfig.Load(configPath);
-            config.GazetteerPath = body.Path;
-            config.Save(configPath);
-            return Results.Json(BuildConfigView(configPath), JsonOptions.Default);
+            return Results.Json(
+                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath),
+                JsonOptions.Default);
         });
 
-        app.MapPost("/api/config/gazetteer-file", () =>
+        app.MapDelete("/api/media-items", (string memoryId, string itemId) =>
         {
             var config = IndexerConfig.Load(configPath);
-            var resolved = ResolveRelativeToConfig(configPath, config.GazetteerPath);
-            if (File.Exists(resolved))
-                return Results.BadRequest(new ErrorResponse($"Gazetteer bestaat al op {resolved}."));
+            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+            var catalog = CatalogStore.Load(catalogPath);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(resolved)!);
-            Gazetteer.CreateEmpty().Save(resolved);
-            return Results.Json(BuildConfigView(configPath), JsonOptions.Default);
+            var result = CatalogStore.RemoveMediaItem(catalog, memoryId, itemId);
+            if (result.Error is not null)
+                return result.NotFound ? Results.NotFound(new ErrorResponse(result.Error)) : Results.BadRequest(new ErrorResponse(result.Error));
+
+            CatalogStore.Save(result.Catalog, catalogPath);
+            CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
+
+            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
         });
 
         app.MapGet("/api/gazetteer", () =>
@@ -137,68 +218,97 @@ public static class UiServer
             return Results.Json(new GazetteerView(gazetteer.Entries), JsonOptions.Default);
         });
 
-        app.MapPost("/api/runs", (StartRunRequest body) =>
+        app.MapGet("/api/settings", () => Results.Json(BuildSettingsView(configPath), JsonOptions.Default));
+
+        app.MapPut("/api/settings/output-folder", (PathRequest body) =>
         {
-            var config = IndexerConfig.Load(configPath);
+            if (string.IsNullOrWhiteSpace(body.Path))
+                return Results.BadRequest(new ErrorResponse("Output-locatie mag niet leeg zijn."));
 
-            if (string.IsNullOrWhiteSpace(body.SourceFolder) || !config.SourceFolders.Contains(body.SourceFolder))
-                return Results.BadRequest(new ErrorResponse("Kies een geconfigureerde Source Folder."));
-            if (!Directory.Exists(body.SourceFolder))
-                return Results.BadRequest(new ErrorResponse($"Source Folder bestaat niet meer: {body.SourceFolder}"));
-            if (string.IsNullOrWhiteSpace(body.MemoryName))
-                return Results.BadRequest(new ErrorResponse("Memory-naam mag niet leeg zijn."));
-            if (string.IsNullOrWhiteSpace(body.DestinationName))
-                return Results.BadRequest(new ErrorResponse("Destination-naam mag niet leeg zijn."));
-
-            var (_, gazetteerPath, error) = LoadGazetteer(configPath,
-                r => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {r}. Configureer 'm eerst.")));
-            if (error is not null) return error;
-
-            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
-
-            var run = runs.Start(state =>
+            try
             {
-                var log = new RunLogWriter(state);
-                var gazetteer = Gazetteer.Load(gazetteerPath);
-                var catalog = CatalogBuilder.Build(
-                    body.SourceFolder, body.MemoryName, body.DestinationName, gazetteer, outputFolder, log);
+                ResolveRelativeToConfig(configPath, body.Path);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return Results.BadRequest(new ErrorResponse($"Ongeldig pad: {ex.Message}"));
+            }
 
-                Directory.CreateDirectory(outputFolder);
-                var catalogPath = Path.Combine(outputFolder, "catalog.json");
-                File.WriteAllText(catalogPath, JsonSerializer.Serialize(catalog, JsonOptions.Default));
-                state.AppendLog($"Catalogus geschreven: {catalogPath}");
-                state.MarkSucceeded(catalogPath);
-            });
-
-            return Results.Json(new { runId = run.Id }, JsonOptions.Default);
+            var config = IndexerConfig.Load(configPath);
+            config.OutputFolder = body.Path;
+            config.Save(configPath);
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
         });
 
-        app.MapGet("/api/runs/{id}", (string id) =>
+        app.MapPut("/api/settings/gazetteer-path", (PathRequest body) =>
         {
-            var run = runs.Get(id);
-            if (run is null) return Results.NotFound(new ErrorResponse("Onbekende run."));
+            if (string.IsNullOrWhiteSpace(body.Path))
+                return Results.BadRequest(new ErrorResponse("Gazetteer-pad mag niet leeg zijn."));
 
-            return Results.Json(
-                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath),
-                JsonOptions.Default);
+            var config = IndexerConfig.Load(configPath);
+            config.GazetteerPath = body.Path;
+            config.Save(configPath);
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
+        });
+
+        app.MapPost("/api/settings/gazetteer-file", () =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var resolved = ResolveRelativeToConfig(configPath, config.GazetteerPath);
+            if (File.Exists(resolved))
+                return Results.BadRequest(new ErrorResponse($"Gazetteer bestaat al op {resolved}."));
+
+            Directory.CreateDirectory(Path.GetDirectoryName(resolved)!);
+            Gazetteer.CreateEmpty().Save(resolved);
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
         });
 
         app.Run();
     }
 
-    private static ConfigView BuildConfigView(string configPath)
+    private static List<FolderView> BuildFolderViews(string configPath)
+    {
+        var config = IndexerConfig.Load(configPath);
+        var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+        var catalogPath = Path.Combine(outputFolder, "catalog.json");
+        var catalog = CatalogStore.Load(catalogPath);
+
+        return config.SourceFolders.Select(path =>
+        {
+            var indexed = config.FindIndexed(path);
+            var memory = indexed is null ? null : catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
+
+            IndexedView? indexedView = null;
+            if (indexed is not null && memory is not null)
+            {
+                var items = memory.Chapters
+                    .SelectMany(c => c.MediaItems)
+                    .Select(item => new MediaItemView(
+                        item.Id,
+                        "/" + item.MediaRef,
+                        item.Type,
+                        item.CapturedAt,
+                        CatalogStore.IsCover(memory, item.Id)))
+                    .ToList();
+
+                indexedView = new IndexedView(
+                    indexed.MemoryId, indexed.MemoryName, indexed.DestinationName, memory.DestinationCoordinate,
+                    indexed.IndexedAt, "/" + memory.CoverImage, items);
+            }
+
+            return new FolderView(path, Directory.Exists(path), indexedView);
+        }).ToList();
+    }
+
+    private static SettingsView BuildSettingsView(string configPath)
     {
         var config = IndexerConfig.Load(configPath);
         var gazetteerPath = ResolveRelativeToConfig(configPath, config.GazetteerPath);
         var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
 
-        return new ConfigView(
-            config.SourceFolders.Select(f => new SourceFolderView(f, Directory.Exists(f))).ToList(),
-            config.GazetteerPath,
-            gazetteerPath,
-            File.Exists(gazetteerPath),
-            config.OutputFolder,
-            outputFolder);
+        return new SettingsView(
+            config.GazetteerPath, gazetteerPath, File.Exists(gazetteerPath),
+            config.OutputFolder, outputFolder);
     }
 
     private static (Gazetteer? Gazetteer, string ResolvedPath, IResult? Error) LoadGazetteer(
@@ -217,25 +327,30 @@ public static class UiServer
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, maybeRelative));
 }
 
-public sealed record SourceFolderRequest(string Path);
-
 public sealed record PathRequest(string Path);
 
 public sealed record GazetteerEntryRequest(string Name, double Lat, double Lon);
 
-public sealed record StartRunRequest(string SourceFolder, string MemoryName, string DestinationName);
+public sealed record IndexFolderRequest(string Path, string? MemoryName, string? DestinationName);
 
 public sealed record ErrorResponse(string Error);
 
-public sealed record SourceFolderView(string Path, bool Exists);
+public sealed record MediaItemView(string Id, string Url, MediaKind Type, DateTimeOffset? CapturedAt, bool IsCover);
 
-public sealed record ConfigView(
-    List<SourceFolderView> SourceFolders,
-    string GazetteerPath,
-    string GazetteerPathResolved,
-    bool GazetteerExists,
-    string OutputFolder,
-    string OutputFolderResolved);
+public sealed record IndexedView(
+    string MemoryId,
+    string MemoryName,
+    string DestinationName,
+    Coordinate DestinationCoordinate,
+    DateTimeOffset IndexedAt,
+    string CoverUrl,
+    List<MediaItemView> MediaItems);
+
+public sealed record FolderView(string Path, bool Exists, IndexedView? Indexed);
+
+public sealed record SettingsView(
+    string GazetteerPath, string GazetteerPathResolved, bool GazetteerExists,
+    string OutputFolder, string OutputFolderResolved);
 
 public sealed record GazetteerView(IReadOnlyDictionary<string, Coordinate> Entries);
 
