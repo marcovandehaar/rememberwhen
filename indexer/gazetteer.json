@@ -1,1 +1,10 @@
-{ "Zillertal": { "lat": 47.2, "lon": 11.9 } }
+{
+  "Zillertal": {
+    "lat": 47.2,
+    "lon": 11.9
+  },
+  "Disneyland Parijs": {
+    "lat": 48.8,
+    "lon": 2.5
+  }
+}
