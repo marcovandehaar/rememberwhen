@@ -32,7 +32,13 @@ public static class UiServer
         var runs = new RunTracker();
 
         app.UseDefaultFiles();
-        app.UseStaticFiles();
+        // Force revalidation rather than letting the browser assume the
+        // page's own JS/CSS are still fresh after a rebuild — this tool gets
+        // restarted mid-session more often than a normal website does.
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache",
+        });
 
         // Media derivatives live under the (configurable, arbitrary) output
         // folder, not under wwwroot, so they need their own route.
