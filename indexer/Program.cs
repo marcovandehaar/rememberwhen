@@ -1,12 +1,27 @@
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using Indexer;
 using Indexer.Catalog;
+using Indexer.Web;
+
+if (args.Length == 0)
+{
+    var configPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "config.json");
+    const string url = "http://localhost:5183";
+
+    Console.WriteLine($"Instellingen-UI gestart op {url} (Ctrl+C om te stoppen).");
+    TryOpenBrowser(url);
+
+    UiServer.Run(configPath, url);
+    return 0;
+}
 
 if (args.Length < 4)
 {
     Console.Error.WriteLine(
         "Gebruik: Indexer <source-folder> <memory-naam> <destination-naam> <output-folder> [gazetteer.json]");
+    Console.Error.WriteLine("Of: Indexer (zonder argumenten) start de instellingen-UI.");
     return 1;
 }
 
@@ -33,4 +48,16 @@ catch (Exception ex)
 {
     Console.Error.WriteLine($"Indexeren mislukt: {ex.Message}");
     return 1;
+}
+
+static void TryOpenBrowser(string url)
+{
+    try
+    {
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Kon geen browser openen ({ex.Message}); open {url} handmatig.");
+    }
 }

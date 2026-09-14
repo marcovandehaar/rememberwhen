@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>rememberwhen — Indexer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>rememberwhen — Indexer</h1>
+    <nav>
+      <button type="button" class="tab active" data-tab="settings">Instellingen</button>
+      <button type="button" class="tab" data-tab="run">Run</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-settings" class="tab-panel active">
+      <div class="card">
+        <h2>Source Folders</h2>
+        <ul id="source-folders" class="list"></ul>
+        <form id="add-source-folder-form" class="row">
+          <input type="text" id="add-source-folder-path" placeholder="C:\Photos\Schotland 2010" required />
+          <button type="submit">Toevoegen</button>
+        </form>
+        <p id="source-folder-error" class="error" hidden></p>
+      </div>
+
+      <div class="card">
+        <h2>Gazetteer</h2>
+        <p class="hint">Destination-naam → coördinaat. De coördinaat van een Destination volgt altijd uit de naam.</p>
+        <div class="row">
+          <label>Bestand: <code id="gazetteer-path"></code></label>
+          <button type="button" id="edit-gazetteer-path-button">Wijzig pad</button>
+          <button type="button" id="create-gazetteer-button" hidden>Bestand aanmaken</button>
+        </div>
+        <p id="gazetteer-missing" class="error" hidden></p>
+        <table id="gazetteer-table" class="list">
+          <thead><tr><th>Destination</th><th>Lat</th><th>Lon</th><th></th></tr></thead>
+          <tbody id="gazetteer-rows"></tbody>
+        </table>
+        <form id="add-gazetteer-form" class="row">
+          <input type="text" id="gazetteer-name" placeholder="Destination-naam" required />
+          <input type="number" id="gazetteer-lat" placeholder="Lat" step="any" min="-90" max="90" required />
+          <input type="number" id="gazetteer-lon" placeholder="Lon" step="any" min="-180" max="180" required />
+          <button type="submit">Opslaan</button>
+        </form>
+        <p id="gazetteer-error" class="error" hidden></p>
+      </div>
+
+      <div class="card">
+        <h2>Output-locatie</h2>
+        <div class="row">
+          <input type="text" id="output-folder" />
+          <button type="button" id="save-output-folder-button">Opslaan</button>
+        </div>
+        <p id="output-folder-resolved" class="hint"></p>
+        <p id="output-folder-error" class="error" hidden></p>
+      </div>
+    </section>
+
+    <section id="tab-run" class="tab-panel">
+      <div class="card">
+        <h2>Indexeer-run starten</h2>
+        <form id="run-form">
+          <label>Source Folder
+            <select id="run-source-folder" required></select>
+          </label>
+          <label>Memory-naam
+            <input type="text" id="run-memory-name" placeholder="Zeeland 2016" required />
+          </label>
+          <label>Destination-naam
+            <input type="text" id="run-destination-name" placeholder="Zeeland" required />
+          </label>
+          <button type="submit" id="run-start-button">Start</button>
+        </form>
+        <p id="run-error" class="error" hidden></p>
+        <div id="run-status" class="run-status" hidden>
+          <p><strong>Status:</strong> <span id="run-status-text"></span></p>
+          <pre id="run-log"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

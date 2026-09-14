@@ -46,6 +46,75 @@ public class GazetteerTests
         Assert.Throws<FileNotFoundException>(() => Gazetteer.Load(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString())));
     }
 
+    [Fact]
+    public void Lists_all_seeded_entries()
+    {
+        var path = WriteGazetteer("""{ "Zeeland": { "lat": 51.5, "lon": 3.8 } }""");
+
+        try
+        {
+            var gazetteer = Gazetteer.Load(path);
+
+            Assert.Equal(new Coordinate(51.5, 3.8), gazetteer.Entries["Zeeland"]);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Creates_an_empty_gazetteer_when_none_exists_yet()
+    {
+        var gazetteer = Gazetteer.CreateEmpty();
+
+        Assert.Empty(gazetteer.Entries);
+    }
+
+    [Fact]
+    public void Upsert_adds_a_new_destination_and_overwrites_an_existing_one()
+    {
+        var gazetteer = Gazetteer.CreateEmpty();
+
+        gazetteer.Upsert("Zeeland", new Coordinate(51.5, 3.8));
+        Assert.Equal(new Coordinate(51.5, 3.8), gazetteer.Lookup("Zeeland"));
+
+        gazetteer.Upsert("Zeeland", new Coordinate(51.4, 3.6));
+        Assert.Equal(new Coordinate(51.4, 3.6), gazetteer.Lookup("Zeeland"));
+    }
+
+    [Fact]
+    public void Remove_drops_a_destination()
+    {
+        var gazetteer = Gazetteer.CreateEmpty();
+        gazetteer.Upsert("Zeeland", new Coordinate(51.5, 3.8));
+
+        var removed = gazetteer.Remove("Zeeland");
+
+        Assert.True(removed);
+        Assert.Empty(gazetteer.Entries);
+    }
+
+    [Fact]
+    public void Save_round_trips_through_load()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var gazetteer = Gazetteer.CreateEmpty();
+        gazetteer.Upsert("Zeeland", new Coordinate(51.5, 3.8));
+
+        try
+        {
+            gazetteer.Save(path);
+            var reloaded = Gazetteer.Load(path);
+
+            Assert.Equal(new Coordinate(51.5, 3.8), reloaded.Lookup("Zeeland"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static string WriteGazetteer(string json)
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");

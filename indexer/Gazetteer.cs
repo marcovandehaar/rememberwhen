@@ -14,6 +14,10 @@ public sealed class Gazetteer
 
     private Gazetteer(Dictionary<string, Coordinate> entries) => _entries = entries;
 
+    public IReadOnlyDictionary<string, Coordinate> Entries => _entries;
+
+    public static Gazetteer CreateEmpty() => new([]);
+
     public static Gazetteer Load(string path)
     {
         if (!File.Exists(path))
@@ -35,4 +39,11 @@ public sealed class Gazetteer
         throw new KeyNotFoundException(
             $"'{destinationName}' staat niet in de Gazetteer. Voeg 'm handmatig toe voordat je opnieuw indexeert.");
     }
+
+    public void Upsert(string destinationName, Coordinate coordinate) => _entries[destinationName] = coordinate;
+
+    public bool Remove(string destinationName) => _entries.Remove(destinationName);
+
+    public void Save(string path) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(_entries, JsonOptions.Default));
 }

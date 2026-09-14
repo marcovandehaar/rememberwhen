@@ -19,6 +19,9 @@ prototype/
 spike/media/
 indexer/output/
 
+# Operator-lokale instellingen (Source Folder-paden zijn machine-specifiek)
+indexer/config.json
+
 ### Frontend (Vite)
 frontend/node_modules/
 frontend/dist/
