@@ -73,6 +73,25 @@ public static class CatalogStore
         return new(Replace(catalog, updatedMemory), null);
     }
 
+    // The new pin thumbnail must already be published under coverImage before
+    // this runs (UiServer.cs does that, from the item's own story derivative
+    // — never the original source file, same as everywhere else in this
+    // review screen) — this only ever repoints the model at it.
+    public static RwCatalog SetCover(RwCatalog catalog, string memoryId, string coverImage)
+    {
+        var memory = catalog.Memories.First(m => m.Id == memoryId);
+        var updatedMemory = new RwMemory
+        {
+            Id = memory.Id,
+            Name = memory.Name,
+            DestinationName = memory.DestinationName,
+            DestinationCoordinate = memory.DestinationCoordinate,
+            CoverImage = coverImage,
+            Chapters = memory.Chapters,
+        };
+        return Replace(catalog, updatedMemory);
+    }
+
     // Every derivative file for a Chapter is named starting with the Chapter
     // id, e.g. "schotland-2010-c1-0000-...". Deleting by that prefix removes
     // the whole Chapter's files in one pass.

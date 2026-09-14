@@ -18,7 +18,8 @@ public static class CatalogBuilder
         string destinationName,
         Gazetteer gazetteer,
         string outputFolder,
-        TextWriter? log = null)
+        TextWriter? log = null,
+        Action<int, int>? onProgress = null)
     {
         log ??= Console.Out;
 
@@ -28,8 +29,21 @@ public static class CatalogBuilder
 
         using var videoReader = new VideoMetadataReader();
 
-        var ordered = files
-            .Select(file => (File: file, Kind: file.IsVideo ? MediaKind.Video : MediaKind.Photo, Metadata: ReadMetadata(file, videoReader, log)))
+        // Two passes over the same file count — reading metadata (to sort
+        // chronologically) and then publishing each derivative — so progress
+        // covers both: step 1..N is reading, N+1..2N is publishing.
+        var totalSteps = files.Count * 2;
+        var stepsDone = 0;
+
+        var read = new List<(MediaFile File, MediaKind Kind, MediaMetadata Metadata)>();
+        foreach (var file in files)
+        {
+            var kind = file.IsVideo ? MediaKind.Video : MediaKind.Photo;
+            read.Add((file, kind, ReadMetadata(file, videoReader, log)));
+            onProgress?.Invoke(++stepsDone, totalSteps);
+        }
+
+        var ordered = read
             .OrderBy(entry => entry.Metadata.CapturedAt ?? new DateTimeOffset(File.GetLastWriteTimeUtc(entry.File.FullPath)))
             .ToList();
 
@@ -49,6 +63,7 @@ public static class CatalogBuilder
             var (mediaRef, shotDuration) = kind == MediaKind.Video
                 ? PublishVideo(file, metadata, id, mediaDir)
                 : PublishPhoto(file, metadata, id, mediaDir);
+            onProgress?.Invoke(++stepsDone, totalSteps);
 
             if (i == 0)
             {

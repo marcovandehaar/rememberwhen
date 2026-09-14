@@ -1,6 +1,7 @@
 using System.IO;
 using Indexer.Catalog;
 using Indexer.Config;
+using Indexer.Media;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -150,7 +151,8 @@ public static class UiServer
                 // its replacement actually landed.
                 var log = new RunLogWriter(state);
                 var gazetteer = Gazetteer.Load(gazetteerPath);
-                var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, log);
+                var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, log,
+                    onProgress: state.SetProgress);
                 var newMemory = built.Memories[0];
 
                 var existingCatalog = CatalogStore.Load(catalogPath);
@@ -182,7 +184,7 @@ public static class UiServer
             if (run is null) return Results.NotFound(new ErrorResponse("Onbekende run."));
 
             return Results.Json(
-                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath),
+                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath, run.ProgressCurrent, run.ProgressTotal),
                 JsonOptions.Default);
         });
 
@@ -199,6 +201,42 @@ public static class UiServer
 
             CatalogStore.Save(result.Catalog, catalogPath);
             CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
+
+            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+        });
+
+        app.MapPut("/api/media-items/cover", (SetCoverRequest body) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var mediaDir = Path.Combine(outputFolder, "media");
+            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+            var catalog = CatalogStore.Load(catalogPath);
+
+            var memory = catalog.Memories.FirstOrDefault(m => m.Id == body.MemoryId);
+            if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
+            var item = memory.Chapters.SelectMany(c => c.MediaItems).FirstOrDefault(i => i.Id == body.ItemId);
+            if (item is null) return Results.NotFound(new ErrorResponse("Onbekend Media Item."));
+
+            if (CatalogStore.IsCover(memory, item.Id))
+                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            if (item.Type == MediaKind.Video)
+                return Results.BadRequest(new ErrorResponse("Een video kan geen cover zijn."));
+
+            // From the item's own already-published derivative, same as the
+            // rest of this review screen — never the original source file.
+            var thumbFileName = $"{item.Id}-thumb.jpg";
+            DerivativeGenerator.GeneratePinThumbnail(
+                Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
+
+            var oldCoverPath = Path.Combine(outputFolder, memory.CoverImage);
+            var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}");
+            CatalogStore.Save(updated, catalogPath);
+
+            // Only after the replacement is confirmed on disk — same
+            // build-before-delete ordering as everywhere else here.
+            if (File.Exists(oldCoverPath)) File.Delete(oldCoverPath);
 
             return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
         });
@@ -323,21 +361,51 @@ public static class UiServer
                 return Results.BadRequest(new ErrorResponse(
                     "Stel eerst een Source Folders-basismap in met een netwerkpad (\\\\server\\...)."));
 
-            var root = ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
+            var lines = new List<string>();
+            var ok = true;
+
+            var sourceRoot = ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
             try
             {
                 // Directory.Exists swallows UnauthorizedAccessException/IOException and just
                 // returns false, which would mask exactly the failures this button exists to
                 // catch (bad credentials, an unreachable share) behind a generic "not found".
                 // Calling GetDirectories directly lets those specific exceptions surface.
-                var folderCount = Directory.GetDirectories(root).Length;
-                return Results.Json(new TestConnectionResult(
-                    $"Verbinding gelukt — {folderCount} map(pen) gevonden op {host}."));
+                var folderCount = Directory.GetDirectories(sourceRoot).Length;
+                lines.Add($"Source Folders-basismap: verbinding gelukt — {folderCount} map(pen) gevonden op {host}.");
             }
             catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException or IOException)
             {
-                return Results.BadRequest(new ErrorResponse(ex.Message));
+                ok = false;
+                lines.Add($"Source Folders-basismap: {ex.Message}");
             }
+
+            // The NAS user has scoped read/write, and this credential applies
+            // per host, not per path — so when the output location is on the
+            // same NAS, it's covered automatically. Test it the same way:
+            // for real, not just "is it configured". A write test, not a read
+            // test, since that's what indexing actually needs there.
+            var outputResolved = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var outputHost = UncHost(outputResolved);
+            if (outputHost is not null)
+            {
+                try
+                {
+                    Directory.CreateDirectory(outputResolved);
+                    var marker = Path.Combine(outputResolved, $".rememberwhen-test-{Guid.NewGuid():n}");
+                    File.WriteAllText(marker, "");
+                    File.Delete(marker);
+                    lines.Add($"Output-locatie: schrijftoegang bevestigd op {outputHost}.");
+                }
+                catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException or IOException)
+                {
+                    ok = false;
+                    lines.Add($"Output-locatie: {ex.Message}");
+                }
+            }
+
+            var message = string.Join("\n", lines);
+            return ok ? Results.Json(new TestConnectionResult(message)) : Results.BadRequest(new ErrorResponse(message));
         });
 
         app.MapPut("/api/settings/gazetteer-path", (PathRequest body) =>
@@ -451,6 +519,8 @@ public sealed record GazetteerEntryRequest(string Name, double Lat, double Lon);
 
 public sealed record IndexFolderRequest(string Path, string? MemoryName, string? DestinationName);
 
+public sealed record SetCoverRequest(string MemoryId, string ItemId);
+
 public sealed record ErrorResponse(string Error);
 
 public sealed record MediaItemView(string Id, string Url, MediaKind Type, DateTimeOffset? CapturedAt, bool IsCover);
@@ -478,4 +548,6 @@ public sealed record TestConnectionResult(string Message);
 
 public sealed record GazetteerView(IReadOnlyDictionary<string, Coordinate> Entries);
 
-public sealed record RunView(RunStatus Status, List<string> Log, string? Error, string? CatalogPath);
+public sealed record RunView(
+    RunStatus Status, List<string> Log, string? Error, string? CatalogPath,
+    int? ProgressCurrent, int? ProgressTotal);

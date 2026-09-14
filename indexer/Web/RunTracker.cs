@@ -18,10 +18,18 @@ public sealed class RunState
     public RunStatus Status { get; private set; } = RunStatus.Running;
     public string? Error { get; private set; }
     public string? CatalogPath { get; private set; }
+    public int? ProgressCurrent { get; private set; }
+    public int? ProgressTotal { get; private set; }
 
     public void AppendLog(string line)
     {
         lock (_gate) _log.Add(line);
+    }
+
+    public void SetProgress(int current, int total)
+    {
+        ProgressCurrent = current;
+        ProgressTotal = total;
     }
 
     public List<string> SnapshotLog()

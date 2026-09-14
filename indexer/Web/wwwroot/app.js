@@ -4,10 +4,11 @@
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 4.98 4.98 6.4 10.59 12l-5.6 5.6 1.4 1.4 5.6-5.58 5.6 5.6 1.4-1.42-5.58-5.6 5.6-5.6-1.42-1.4-5.6 5.6z"/></svg>';
 const FOLDER_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg>';
 const WARN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1 21h22L12 3Zm0 6 6.5 10.5h-13L12 9Zm-.9 3v3.5h1.8V12h-1.8Zm0 4.5V18h1.8v-1.5h-1.8Z"/></svg>';
+const STAR_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.9L22 9.6l-5.5 4.8L18 22l-6-3.9L6 22l1.5-7.6L2 9.6l7.1-.7L12 2Z"/></svg>';
 
 let folders = [];
 let selectedPath = null;
-let activeRun = null; // { path, runId, status, log }
+let activeRun = null; // { path, runId, status, log, progressCurrent, progressTotal }
 const attempts = {}; // path -> { memoryName, destinationName, error } — survives a failed run so nothing needs retyping
 const lastNotices = {}; // path -> string[] — non-fatal log lines from the most recent successful run this session
 
@@ -297,15 +298,21 @@ function renderUnindexedDetail(detail, folder) {
 async function startIndex(path, memoryName, destinationName) {
   attempts[path] = { memoryName, destinationName };
   const { runId } = await api('POST', '/api/folders/index', { path, memoryName, destinationName });
-  activeRun = { path, runId, status: 'running', log: [] };
+  activeRun = { path, runId, status: 'running', log: [], progressCurrent: null, progressTotal: null };
   renderDetail();
   pollRun();
 }
 
 function renderRunningDetail(detail, folder) {
+  const { progressCurrent, progressTotal } = activeRun;
+  // No value/max attribute at all (rather than 0/0) renders as the browser's
+  // built-in indeterminate/striped animation — the honest state before the
+  // first progress callback has landed, with no extra code needed for it.
+  const hasProgress = progressTotal != null && progressTotal > 0;
   detail.innerHTML = `
     <div class="detail-head"><h2>${leafName(folder.path)}</h2></div>
     <div class="detail-sub"><span class="spinner"></span>Bezig met indexeren…</div>
+    <progress id="run-progress" ${hasProgress ? `value="${progressCurrent}" max="${progressTotal}"` : ''}></progress>
     <div class="log-box" id="run-log"></div>
   `;
   document.getElementById('run-log').textContent = activeRun.log.join('\n');
@@ -321,6 +328,8 @@ async function pollRun() {
 
     run.log = state.log;
     run.status = state.status;
+    run.progressCurrent = state.progressCurrent;
+    run.progressTotal = state.progressTotal;
 
     if (state.status === 'running') {
       renderDetail();
@@ -389,12 +398,30 @@ function renderIndexedDetail(detail, folder) {
       const removeButton = el(`<button type="button" class="remove-item" title="Verwijder deze foto">${REMOVE_ICON}</button>`);
       removeButton.addEventListener('click', () => removeMediaItem(idx.memoryId, item.id, tile));
       tile.append(removeButton);
+
+      if (item.type !== 'video') {
+        const coverButton = el(`<button type="button" class="set-cover-item" title="Wil je deze als cover zetten?">${STAR_ICON}</button>`);
+        coverButton.addEventListener('click', () => setCoverMediaItem(idx.memoryId, item.id));
+        tile.append(coverButton);
+      }
     }
     grid.append(tile);
   }
 
   document.getElementById('reindex-button').addEventListener('click', () => startIndex(folder.path));
   document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
+}
+
+async function setCoverMediaItem(memoryId, itemId) {
+  const errorEl = document.getElementById('media-item-error');
+  errorEl.hidden = true;
+  try {
+    await api('PUT', '/api/media-items/cover', { memoryId, itemId });
+    await loadFolders();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
 }
 
 async function removeMediaItem(memoryId, itemId, tile) {
