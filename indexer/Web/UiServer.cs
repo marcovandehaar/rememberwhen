@@ -47,6 +47,18 @@ public static class UiServer
             return Results.File(fullPath, contentType ?? "application/octet-stream");
         });
 
+        app.MapGet("/api/browse", (string? path) =>
+        {
+            try
+            {
+                return Results.Json(FileSystemBrowser.Browse(path), JsonOptions.Default);
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException or IOException)
+            {
+                return Results.BadRequest(new ErrorResponse(ex.Message));
+            }
+        });
+
         app.MapGet("/api/folders", () => Results.Json(BuildFolderViews(configPath), JsonOptions.Default));
 
         app.MapPost("/api/folders", (PathRequest body) =>

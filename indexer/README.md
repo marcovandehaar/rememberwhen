@@ -10,7 +10,7 @@ dotnet run --project indexer
 
 Starts a local web server (default `http://localhost:5183`) and opens it in your default browser. The screen is built around three workflows:
 
-- **Add a folder and index it.** Add a Source Folder, name the Memory and Destination, and index it — progress and any notices stream live, and the result is a thumbnail review grid where a stray photo (the odd one that doesn't belong) can be removed with a click. That removal only affects the current result, though — a later reindex rereads the Source Folder from scratch and brings it back, so a permanent fix means removing the file from the folder itself.
+- **Add a folder and index it.** Add a Source Folder — "Bladeren…" opens a picker over the Indexer's own filesystem (a plain browser page can't get a real path back from a native OS dialog, so this is the closest equivalent; typing the path directly still works too) — name the Memory and Destination, and index it. Progress and any notices stream live, and the result is a thumbnail review grid where a stray photo (the odd one that doesn't belong) can be removed with a click. That removal only affects the current result, though — a later reindex rereads the Source Folder from scratch and brings it back, so a permanent fix means removing the file from the folder itself.
 - **Reindex an existing folder.** One click, reusing the Memory/Destination name from the first run — no retyping.
 - **Remove an indexed folder.** Drops it from the list and deletes its published photos.
 

@@ -62,6 +62,82 @@ function confirmDialog({ title, message, confirmLabel }) {
   });
 }
 
+// A picker over the Indexer's own filesystem — the closest thing to a native
+// folder dialog a plain browser page can offer, since browsers never hand a
+// page a real path (not even through the File System Access API). Resolves
+// to the chosen absolute path, or null if cancelled.
+function browseDialog() {
+  return new Promise((resolve) => {
+    let currentPath = null; // null = showing the drive list
+
+    const dialog = el(`
+      <div class="sheet-overlay">
+        <div class="sheet" style="max-width:480px">
+          <div class="sheet-head">
+            <h2>Kies een map</h2>
+            <button type="button" class="icon-button subtle" id="browse-close" aria-label="Sluiten">${REMOVE_ICON}</button>
+          </div>
+          <div class="sheet-section" style="border-top:none">
+            <div class="row" id="browse-crumb" style="margin-top:0"></div>
+            <ul class="browse-list" id="browse-list"></ul>
+            <p class="error" id="browse-error" hidden></p>
+            <div class="row" style="justify-content:flex-end;margin-top:14px">
+              <button type="button" class="button ghost small" id="browse-cancel">Annuleren</button>
+              <button type="button" class="button small" id="browse-select" disabled>Deze map kiezen</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    document.body.append(dialog);
+
+    const crumbEl = dialog.querySelector('#browse-crumb');
+    const listEl = dialog.querySelector('#browse-list');
+    const errorEl = dialog.querySelector('#browse-error');
+    const selectButton = dialog.querySelector('#browse-select');
+
+    const finish = (result) => { dialog.remove(); resolve(result); };
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) finish(null); });
+    dialog.querySelector('#browse-close').addEventListener('click', () => finish(null));
+    dialog.querySelector('#browse-cancel').addEventListener('click', () => finish(null));
+    selectButton.addEventListener('click', () => finish(currentPath));
+
+    async function load(path) {
+      errorEl.hidden = true;
+      try {
+        const result = await api('GET', path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse');
+        currentPath = result.path;
+        selectButton.disabled = !currentPath;
+
+        crumbEl.innerHTML = '';
+        const up = el(`<button type="button" class="button ghost small">↑ Omhoog</button>`);
+        up.disabled = result.path === null;
+        up.addEventListener('click', () => load(result.parent));
+        const label = document.createElement('span');
+        label.className = 'hint';
+        label.textContent = result.path ?? 'Schijven';
+        crumbEl.append(up, label);
+
+        listEl.innerHTML = '';
+        for (const folder of result.folders) {
+          const li = el(`<li class="browse-item">${FOLDER_ICON}<span></span></li>`);
+          li.querySelector('span').textContent = folder.name;
+          li.addEventListener('click', () => load(folder.path));
+          listEl.append(li);
+        }
+        if (result.folders.length === 0) {
+          listEl.append(el('<li class="empty-state" style="padding:10px 0">Geen submappen.</li>'));
+        }
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+      }
+    }
+
+    load(null);
+  });
+}
+
 /* ============================================================= sidebar */
 
 async function loadFolders({ preserveSelection = true } = {}) {
@@ -118,20 +194,29 @@ function renderSidebar() {
 const addForm = document.getElementById('add-folder-form');
 const addInput = document.getElementById('add-folder-path');
 const addError = document.getElementById('add-folder-error');
+const browseButton = document.getElementById('browse-folder-button');
 
 document.getElementById('add-folder-button').addEventListener('click', () => {
   addForm.hidden = !addForm.hidden;
-  if (!addForm.hidden) addInput.focus();
+  if (!addForm.hidden) browseButton.focus();
 });
 
 addInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { addForm.hidden = true; addInput.value = ''; addError.hidden = true; }
 });
 
+browseButton.addEventListener('click', async () => {
+  const picked = await browseDialog();
+  if (picked) await submitAddFolder(picked);
+});
+
 addForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const path = addInput.value.trim();
-  if (!path) return;
+  if (path) await submitAddFolder(path);
+});
+
+async function submitAddFolder(path) {
   addError.hidden = true;
   try {
     await api('POST', '/api/folders', { path });
@@ -140,10 +225,11 @@ addForm.addEventListener('submit', async (e) => {
     selectedPath = path;
     await loadFolders();
   } catch (err) {
+    addInput.value = path;
     addError.textContent = err.message;
     addError.hidden = false;
   }
-});
+}
 
 /* ============================================================= detail pane */
 
