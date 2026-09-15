@@ -20,15 +20,51 @@ public static class PhotoMetadataReader
         var frame = decoder.Frames[0];
 
         DateTimeOffset? capturedAt = null;
-        if (frame.Metadata is BitmapMetadata metadata && metadata.DateTaken is { } raw)
+        Coordinate? gps = null;
+        if (frame.Metadata is BitmapMetadata metadata)
         {
-            if (DateTime.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt) ||
-                DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
+            if (metadata.DateTaken is { } raw &&
+                (DateTime.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt) ||
+                 DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)))
             {
                 capturedAt = new DateTimeOffset(dt, TimeZoneInfo.Local.GetUtcOffset(dt));
             }
+
+            gps = ReadGps(metadata);
         }
 
-        return new MediaMetadata(frame.PixelWidth, frame.PixelHeight, capturedAt, Duration: null);
+        return new MediaMetadata(frame.PixelWidth, frame.PixelHeight, capturedAt, Duration: null, gps);
+    }
+
+    // Only WIC exposes GPS on this machine — the Shell property set used for
+    // video has no latitude/longitude among its properties (research/library-
+    // survey.md). Stored as three unsigned rationals (degrees, minutes,
+    // seconds) per tag, packed by WIC into a ulong per rational (numerator in
+    // the high 32 bits, denominator in the low 32 bits).
+    private static Coordinate? ReadGps(BitmapMetadata metadata)
+    {
+        var lat = ReadDegrees(metadata, "/app1/ifd/gps/{ushort=2}");
+        var lon = ReadDegrees(metadata, "/app1/ifd/gps/{ushort=4}");
+        if (lat is null || lon is null) return null;
+
+        var latRef = metadata.GetQuery("/app1/ifd/gps/{ushort=1}") as string;
+        var lonRef = metadata.GetQuery("/app1/ifd/gps/{ushort=3}") as string;
+        var signedLat = string.Equals(latRef, "S", StringComparison.OrdinalIgnoreCase) ? -lat.Value : lat.Value;
+        var signedLon = string.Equals(lonRef, "W", StringComparison.OrdinalIgnoreCase) ? -lon.Value : lon.Value;
+        return new Coordinate(signedLat, signedLon);
+    }
+
+    private static double? ReadDegrees(BitmapMetadata metadata, string query)
+    {
+        if (metadata.GetQuery(query) is not ulong[] { Length: 3 } triplet) return null;
+
+        double Part(ulong packed)
+        {
+            var numerator = (uint)(packed >> 32);
+            var denominator = (uint)(packed & 0xFFFFFFFF);
+            return denominator == 0 ? 0 : (double)numerator / denominator;
+        }
+
+        return Part(triplet[0]) + Part(triplet[1]) / 60.0 + Part(triplet[2]) / 3600.0;
     }
 }

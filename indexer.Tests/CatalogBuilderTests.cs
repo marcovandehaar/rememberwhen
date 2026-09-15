@@ -94,6 +94,73 @@ public class CatalogBuilderTests : IDisposable
     }
 
     [Fact]
+    public void Chains_a_multi_day_trip_without_gps_into_one_chapter()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "day1.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        // day 2 is skipped entirely, but that's only one empty day — not
+        // enough on its own to split (#20/#31).
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "day3.jpg"), 800, 600, new DateTime(2016, 7, 3, 9, 0, 0));
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var chapter = Assert.Single(catalog.Memories[0].Chapters);
+        Assert.Equal(2, chapter.MediaItems.Count);
+        Assert.Null(chapter.Location);
+    }
+
+    [Fact]
+    public void Splits_a_chapter_after_two_consecutive_empty_days_without_gps()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "day1.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        // Days 2 and 3 are both empty — two consecutive empty days.
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "day4.jpg"), 800, 600, new DateTime(2016, 7, 4, 9, 0, 0));
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var chapters = catalog.Memories[0].Chapters;
+        Assert.Equal(2, chapters.Count);
+        Assert.Single(chapters[0].MediaItems);
+        Assert.Single(chapters[1].MediaItems);
+    }
+
+    [Fact]
+    public void Splits_within_a_single_day_on_a_large_gps_jump()
+    {
+        var morning = new Coordinate(0, 0);
+        var afternoon = new Coordinate(0.1, 0); // ~11 km away — over the 5 km threshold
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "morning.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0), morning);
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "afternoon.jpg"), 800, 600, new DateTime(2016, 7, 1, 15, 0, 0), afternoon);
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var chapters = catalog.Memories[0].Chapters;
+        Assert.Equal(2, chapters.Count);
+        Assert.Equal(morning, chapters[0].Location);
+        Assert.Equal(afternoon, chapters[1].Location);
+    }
+
+    [Fact]
+    public void Suppresses_a_day_gap_boundary_when_gps_shows_the_same_place()
+    {
+        var place = new Coordinate(0, 0);
+        var nearbyPlace = new Coordinate(0.02, 0); // ~2 km away — within the 5 km threshold
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "day1.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0), place);
+        // Two empty days would normally split this, but GPS shows it's the
+        // same place before and after (#20's suppression rule).
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "day4.jpg"), 800, 600, new DateTime(2016, 7, 4, 9, 0, 0), nearbyPlace);
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var chapter = Assert.Single(catalog.Memories[0].Chapters);
+        Assert.Equal(2, chapter.MediaItems.Count);
+        Assert.Equal(place, chapter.Location);
+    }
+
+    [Fact]
     public void Checks_the_gazetteer_before_reading_the_source_folder()
     {
         // A Source Folder that doesn't exist would make SourceFolderReader.Read

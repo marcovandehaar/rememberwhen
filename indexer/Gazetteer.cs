@@ -1,6 +1,5 @@
 using System.IO;
 using System.Text.Json;
-using Indexer.Catalog;
 
 namespace Indexer;
 

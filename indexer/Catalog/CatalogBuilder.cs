@@ -3,11 +3,12 @@ using Indexer.Media;
 
 namespace Indexer.Catalog;
 
-// Ticket #28's scope only: one Source Folder, one Memory, one hardcoded
-// Chapter. Chapter-splitting (#20/#31), anomaly detection (#19/#33) and the
-// confirmation UI (#22/#34) are later tickets — a missing capture time here
-// falls back to the file's own timestamp rather than being reported, which
-// is a stopgap this ticket is explicitly allowed to leave behind.
+// One Source Folder, one Memory, split into real Chapters per #20/#31's
+// two-layer heuristic (see ChapterBoundaries). Anomaly detection (#19/#33)
+// and the confirmation UI (#22/#34) are later tickets — a missing capture
+// time here falls back to the file's own timestamp rather than being
+// reported, which is a stopgap those tickets are explicitly allowed to
+// leave behind.
 public static class CatalogBuilder
 {
     private const double DefaultShotDuration = 4.0;
@@ -49,20 +50,50 @@ public static class CatalogBuilder
         }
 
         var ordered = read
-            .OrderBy(entry => entry.Metadata.CapturedAt ?? new DateTimeOffset(File.GetLastWriteTimeUtc(entry.File.FullPath)))
+            .Select(entry => (
+                entry.File,
+                entry.Kind,
+                entry.Metadata,
+                EffectiveCapturedAt: entry.Metadata.CapturedAt ?? new DateTimeOffset(File.GetLastWriteTimeUtc(entry.File.FullPath))))
+            .OrderBy(entry => entry.EffectiveCapturedAt)
             .ToList();
 
         var memoryId = Slug.From(memoryName);
-        var chapterId = $"{memoryId}-c1";
         var mediaDir = Path.Combine(outputFolder, "media");
         Directory.CreateDirectory(mediaDir);
 
-        var mediaItems = new List<RwMediaItem>();
+        var chapters = new List<RwChapter>();
+        var chapterMediaItems = new List<RwMediaItem>();
+        Coordinate? chapterLocation = null;
+        var chapterNumber = 1;
         string? coverImage = null;
+
+        void FlushChapter()
+        {
+            if (chapterMediaItems.Count == 0) return;
+            chapters.Add(new RwChapter
+            {
+                Id = $"{memoryId}-c{chapterNumber}",
+                Location = chapterLocation,
+                MediaItems = chapterMediaItems,
+            });
+            chapterNumber++;
+            chapterMediaItems = [];
+            chapterLocation = null;
+        }
 
         for (var i = 0; i < ordered.Count; i++)
         {
-            var (file, kind, metadata) = ordered[i];
+            var (file, kind, metadata, effectiveCapturedAt) = ordered[i];
+
+            if (i > 0)
+            {
+                var previous = ordered[i - 1];
+                if (ChapterBoundaries.IsBoundary(previous.EffectiveCapturedAt, previous.Metadata.Gps, effectiveCapturedAt, metadata.Gps))
+                    FlushChapter();
+            }
+
+            var chapterId = $"{memoryId}-c{chapterNumber}";
             var id = $"{chapterId}-{i:D4}-{Slug.From(Path.GetFileNameWithoutExtension(file.RelativePath))}";
 
             var (mediaRef, shotDuration) = kind == MediaKind.Video
@@ -85,7 +116,7 @@ public static class CatalogBuilder
                 coverImage = $"media/{thumbFileName}";
             }
 
-            mediaItems.Add(new RwMediaItem
+            chapterMediaItems.Add(new RwMediaItem
             {
                 Id = id,
                 MediaRef = mediaRef,
@@ -94,9 +125,12 @@ public static class CatalogBuilder
                 StoryRect = StoryRectFormula.Compute(metadata.Width, metadata.Height, i),
                 ShotDuration = shotDuration,
             });
+            // A Chapter has a location as soon as any of its Media Items
+            // carries GPS (CONTEXT.md: Chapter) — first one found wins.
+            chapterLocation ??= metadata.Gps;
         }
+        FlushChapter();
 
-        var chapter = new RwChapter { Id = chapterId, MediaItems = mediaItems };
         var memory = new RwMemory
         {
             Id = memoryId,
@@ -104,7 +138,7 @@ public static class CatalogBuilder
             DestinationName = destinationName,
             DestinationCoordinate = destinationCoordinate,
             CoverImage = coverImage!,
-            Chapters = [chapter],
+            Chapters = chapters,
         };
 
         return new RwCatalog { Memories = [memory] };

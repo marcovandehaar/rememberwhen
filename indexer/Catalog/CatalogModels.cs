@@ -40,8 +40,6 @@ public enum MediaKind
     Video,
 }
 
-public readonly record struct Coordinate(double Lat, double Lon);
-
 // Normalised (0..1) crop within the source frame — the Indexer's formulaic
 // framing for v1. Pan direction/zoom during playback is the renderer's job,
 // derived from this rect plus the item's position in the sequence; see #12.
