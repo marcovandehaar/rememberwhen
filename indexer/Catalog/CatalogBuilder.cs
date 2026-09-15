@@ -23,6 +23,11 @@ public static class CatalogBuilder
     {
         log ??= Console.Out;
 
+        // Cheap and fast, so it goes first: an unseeded Destination fails here
+        // instead of after the slow read-and-publish pass over every file,
+        // which can take minutes over a NAS share (#38).
+        var destinationCoordinate = gazetteer.Lookup(destinationName);
+
         var files = SourceFolderReader.Read(sourceFolder, log);
         if (files.Count == 0)
             throw new InvalidOperationException($"Geen ondersteunde media gevonden in {sourceFolder}.");
@@ -97,7 +102,7 @@ public static class CatalogBuilder
             Id = memoryId,
             Name = memoryName,
             DestinationName = destinationName,
-            DestinationCoordinate = gazetteer.Lookup(destinationName),
+            DestinationCoordinate = destinationCoordinate,
             CoverImage = coverImage!,
             Chapters = [chapter],
         };

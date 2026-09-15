@@ -92,4 +92,17 @@ public class CatalogBuilderTests : IDisposable
         Assert.Throws<KeyNotFoundException>(() =>
             CatalogBuilder.Build(_sourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, TextWriter.Null));
     }
+
+    [Fact]
+    public void Checks_the_gazetteer_before_reading_the_source_folder()
+    {
+        // A Source Folder that doesn't exist would make SourceFolderReader.Read
+        // throw DirectoryNotFoundException — so seeing the Gazetteer's
+        // KeyNotFoundException instead proves the lookup ran first (#38).
+        var missingSourceDir = Path.Combine(Path.GetDirectoryName(_sourceDir)!, "does-not-exist");
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+
+        Assert.Throws<KeyNotFoundException>(() =>
+            CatalogBuilder.Build(missingSourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, TextWriter.Null));
+    }
 }

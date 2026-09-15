@@ -90,7 +90,7 @@
           <tbody id="gazetteer-rows"></tbody>
         </table>
         <form id="add-gazetteer-form" class="row">
-          <input type="text" id="gazetteer-name" placeholder="Destination-naam" required />
+          <input type="text" id="gazetteer-name" placeholder="Destination-naam" list="destination-names" required />
           <input type="number" id="gazetteer-lat" placeholder="Lat" step="any" min="-90" max="90" required />
           <input type="number" id="gazetteer-lon" placeholder="Lon" step="any" min="-180" max="180" required />
           <button type="submit" class="button small">Opslaan</button>
@@ -99,6 +99,11 @@
       </section>
     </div>
   </div>
+
+  <!-- Names already in the Gazetteer, so both this form and the folder-index
+       flow's Destination-naam field can suggest reusing one instead of
+       accidentally typing a near-duplicate (#38). -->
+  <datalist id="destination-names"></datalist>
 
   <script src="app.js"></script>
 </body>

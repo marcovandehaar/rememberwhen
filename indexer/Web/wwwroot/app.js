@@ -262,7 +262,7 @@ function renderUnindexedDetail(detail, folder) {
     ${attempt?.error ? `<p class="error" style="max-width:480px">Indexeren mislukt: ${attempt.error}</p>` : ''}
     ${folder.exists ? `
       <div class="field"><label for="memory-name">Memory-naam</label><input type="text" id="memory-name" placeholder="Zeeland 2016" value="${attempt?.memoryName ?? ''}" /></div>
-      <div class="field"><label for="destination-name">Destination-naam</label><input type="text" id="destination-name" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" /></div>
+      <div class="field"><label for="destination-name">Destination-naam</label><input type="text" id="destination-name" list="destination-names" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" /></div>
       <button type="button" class="button" id="index-button">Indexeer</button>
       <p class="error" id="index-error" hidden></p>
     ` : ''}
@@ -504,12 +504,39 @@ function renderSettings(settings) {
   }
 }
 
+// Destination names already in the Gazetteer, offered as <datalist> suggestions
+// on every Destination-naam field (index-folder flow and this settings sheet)
+// so retyping an existing name doesn't drift into a near-duplicate (#38).
+function refreshDestinationNames(entries) {
+  const list = document.getElementById('destination-names');
+  list.innerHTML = '';
+  for (const name of Object.keys(entries ?? {})) {
+    const option = document.createElement('option');
+    option.value = name;
+    list.append(option);
+  }
+}
+
+// Tolerates a missing Gazetteer file (404) the same way the rest of this
+// screen treats "not set up yet" — as no suggestions, not an error.
+async function fetchGazetteerEntries() {
+  try {
+    return (await api('GET', '/api/gazetteer')).entries;
+  } catch {
+    return {};
+  }
+}
+
 async function loadGazetteer(settings) {
   const rows = document.getElementById('gazetteer-rows');
   rows.innerHTML = '';
-  if (!settings.gazetteerExists) return;
+  if (!settings.gazetteerExists) {
+    refreshDestinationNames();
+    return;
+  }
 
-  const { entries } = await api('GET', '/api/gazetteer');
+  const entries = await fetchGazetteerEntries();
+  refreshDestinationNames(entries);
   for (const [name, coord] of Object.entries(entries)) {
     const tr = el(`<tr>
       <td></td><td></td><td></td>
@@ -633,3 +660,6 @@ document.getElementById('test-nas-connection-button').addEventListener('click', 
 });
 
 loadFolders();
+// Eager, independent of the settings sheet: the index-folder flow's own
+// Destination-naam field needs suggestions without a detour through Settings.
+fetchGazetteerEntries().then(refreshDestinationNames);
