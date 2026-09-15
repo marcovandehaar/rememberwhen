@@ -186,7 +186,7 @@ public class CatalogBuilderTests : IDisposable
 
         var curation = CurationFile.Load(CurationFile.SidecarPathFor(_sourceDir));
         var anomaly = curation.Anomalies["NIKON D50"];
-        Assert.Equal("use-mtime", anomaly.Handling);
+        Assert.Equal(AnomalyHandling.UseMtime, anomaly.Handling);
         Assert.Equal(3, anomaly.AffectedFiles.Count);
     }
 
@@ -220,7 +220,7 @@ public class CatalogBuilderTests : IDisposable
 
         var curation = CurationFile.Load(CurationFile.SidecarPathFor(_sourceDir));
         var anomaly = curation.Anomalies["geen-opnametijd"];
-        Assert.Equal("filename-order", anomaly.Handling);
+        Assert.Equal(AnomalyHandling.FilenameOrder, anomaly.Handling);
         Assert.Equal(2, anomaly.AffectedFiles.Count);
     }
 

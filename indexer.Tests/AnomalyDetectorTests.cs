@@ -31,7 +31,7 @@ public class AnomalyDetectorTests
 
         var anomaly = Assert.Single(result.Anomalies);
         Assert.Equal("NIKON D50", anomaly.Cause);
-        Assert.Equal("use-mtime", anomaly.Handling);
+        Assert.Equal(AnomalyHandling.UseMtime, anomaly.Handling);
         Assert.Equal(["nikon1.jpg", "nikon2.jpg", "nikon3.jpg"], anomaly.AffectedFiles);
     }
 
@@ -84,7 +84,7 @@ public class AnomalyDetectorTests
 
         var anomaly = Assert.Single(result.Anomalies);
         Assert.Equal("geen-opnametijd", anomaly.Cause);
-        Assert.Equal("filename-order", anomaly.Handling);
+        Assert.Equal(AnomalyHandling.FilenameOrder, anomaly.Handling);
         Assert.Equal(["day/pano_1.jpg", "day/pano_2.jpg"], anomaly.AffectedFiles);
 
         // Placed between their filename-neighbours, strictly increasing, and

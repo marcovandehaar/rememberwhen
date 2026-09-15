@@ -30,14 +30,14 @@ public class CurationFileTests : IDisposable
         var curation = CurationFile.CreateEmpty();
         curation.Anomalies["NIKON D50"] = new AnomalyRecord(
             Message: "3 bestand(en) van NIKON D50 ...",
-            Handling: "use-mtime",
+            Handling: AnomalyHandling.UseMtime,
             AffectedFiles: ["nikon1.jpg", "nikon2.jpg", "nikon3.jpg"]);
         curation.Save(path);
 
         var reloaded = CurationFile.Load(path);
 
         var anomaly = reloaded.Anomalies["NIKON D50"];
-        Assert.Equal("use-mtime", anomaly.Handling);
+        Assert.Equal(AnomalyHandling.UseMtime, anomaly.Handling);
         Assert.Equal(3, anomaly.AffectedFiles.Count);
     }
 

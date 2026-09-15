@@ -62,6 +62,9 @@ public static class CatalogBuilder
         foreach (var anomaly in detection.Anomalies) log.WriteLine(anomaly.Message);
         if (detection.Anomalies.Count > 0)
         {
+            // Recomputed fresh every run rather than loaded-then-merged: no
+            // operator override exists yet to preserve (#34). Once one does,
+            // an operator's hand-edited Handling here must survive a re-run.
             var curation = CurationFile.CreateEmpty();
             foreach (var anomaly in detection.Anomalies)
                 curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());

@@ -39,4 +39,4 @@ public sealed class CurationFile
     }
 }
 
-public sealed record AnomalyRecord(string Message, string Handling, List<string> AffectedFiles);
+public sealed record AnomalyRecord(string Message, AnomalyHandling Handling, List<string> AffectedFiles);

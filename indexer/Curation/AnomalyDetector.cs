@@ -67,7 +67,7 @@ public static class AnomalyDetector
                 Message: $"{groupFiles.Count} bestand(en) van {group.Key} wijzen op een andere periode dan de rest " +
                          "van de map; hun bestandsdatum valt er wel binnen — vermoedelijk een verkeerd gezette " +
                          "cameraklok. Geplaatst op bestandsdatum in plaats van EXIF.",
-                Handling: "use-mtime",
+                Handling: AnomalyHandling.UseMtime,
                 AffectedFiles: groupFiles.Select(f => f.RelativePath).ToList()));
         }
     }
@@ -92,7 +92,7 @@ public static class AnomalyDetector
         anomalies.Add(new AnomalyReport(
             Cause: "geen-opnametijd",
             Message: $"{undated.Count} bestand(en) zonder opnametijd, geplaatst op volgorde van bestandsnaam.",
-            Handling: "filename-order",
+            Handling: AnomalyHandling.FilenameOrder,
             AffectedFiles: undated.Select(f => f.RelativePath).ToList()));
     }
 
@@ -155,4 +155,14 @@ public static class AnomalyDetector
         a.Min <= b.Max && b.Min <= a.Max;
 }
 
-public sealed record AnomalyReport(string Cause, string Message, string Handling, IReadOnlyList<string> AffectedFiles);
+public sealed record AnomalyReport(string Cause, string Message, AnomalyHandling Handling, IReadOnlyList<string> AffectedFiles);
+
+// The default handling #19 §6 applies automatically for each of the two
+// causes this ticket detects; the table's other four (fixed-offset shift,
+// explicit date range, exclude, "not an anomaly") are operator overrides
+// that need #34's confirmation UI to mean anything, so aren't modelled yet.
+public enum AnomalyHandling
+{
+    UseMtime,
+    FilenameOrder,
+}
