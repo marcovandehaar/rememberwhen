@@ -1,5 +1,6 @@
 using Indexer;
 using Indexer.Catalog;
+using Indexer.Curation;
 
 namespace Indexer.Tests;
 
@@ -158,6 +159,95 @@ public class CatalogBuilderTests : IDisposable
         var chapter = Assert.Single(catalog.Memories[0].Chapters);
         Assert.Equal(2, chapter.MediaItems.Count);
         Assert.Equal(place, chapter.Location);
+    }
+
+    [Fact]
+    public void Flags_a_wrong_camera_clock_and_places_the_group_by_file_date_without_blocking_the_rest()
+    {
+        // The Schotland 2010 case: EXIF points to January (a reset clock),
+        // but the files were copied off the card in August, same as the
+        // rest of the trip — their file date says so.
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony1.jpg"), 800, 600, new DateTime(2010, 8, 1, 9, 0, 0), camera: "SONY DSC-W70");
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony2.jpg"), 800, 600, new DateTime(2010, 8, 7, 9, 0, 0), camera: "SONY DSC-W70");
+
+        foreach (var name in new[] { "nikon1.jpg", "nikon2.jpg", "nikon3.jpg" })
+        {
+            var path = Path.Combine(_sourceDir, name);
+            TestImages.WriteJpeg(path, 800, 600, new DateTime(2010, 1, 2, 9, 0, 0), camera: "NIKON D50");
+            File.SetLastWriteTimeUtc(path, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
+        }
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        // Non-blocking: all five files still end up as Media Items.
+        var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
+        Assert.Equal(5, items.Count);
+
+        var curation = CurationFile.Load(CurationFile.SidecarPathFor(_sourceDir));
+        var anomaly = curation.Anomalies["NIKON D50"];
+        Assert.Equal("use-mtime", anomaly.Handling);
+        Assert.Equal(3, anomaly.AffectedFiles.Count);
+    }
+
+    [Fact]
+    public void Flags_files_without_capture_time_and_places_them_by_filename_instead_of_a_fabricated_mtime()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a_photo.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+
+        foreach (var name in new[] { "pano_1.jpg", "pano_2.jpg" })
+        {
+            var path = Path.Combine(_sourceDir, name);
+            TestImages.WriteJpeg(path, 800, 600, capturedAt: null);
+            // A stitched panorama's mtime lies about when the trip was — it
+            // must never be silently trusted for placement (#19 §7/#33).
+            File.SetLastWriteTimeUtc(path, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        }
+
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "z_photo.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
+        Assert.Equal(4, items.Count);
+
+        var order = items.Select(i => i.Id).ToList();
+        int IndexOfSuffix(string suffix) => order.FindIndex(id => id.EndsWith("-" + suffix));
+        Assert.True(IndexOfSuffix("a-photo") < IndexOfSuffix("pano-1"));
+        Assert.True(IndexOfSuffix("pano-1") < IndexOfSuffix("pano-2"));
+        Assert.True(IndexOfSuffix("pano-2") < IndexOfSuffix("z-photo"));
+
+        var curation = CurationFile.Load(CurationFile.SidecarPathFor(_sourceDir));
+        var anomaly = curation.Anomalies["geen-opnametijd"];
+        Assert.Equal("filename-order", anomaly.Handling);
+        Assert.Equal(2, anomaly.AffectedFiles.Count);
+    }
+
+    [Fact]
+    public void A_curation_entry_stays_correct_when_more_files_matching_the_same_cause_are_added_later()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony1.jpg"), 800, 600, new DateTime(2010, 8, 1, 9, 0, 0), camera: "SONY DSC-W70");
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony2.jpg"), 800, 600, new DateTime(2010, 8, 7, 9, 0, 0), camera: "SONY DSC-W70");
+        var nikon1 = Path.Combine(_sourceDir, "nikon1.jpg");
+        TestImages.WriteJpeg(nikon1, 800, 600, new DateTime(2010, 1, 2, 9, 0, 0), camera: "NIKON D50");
+        File.SetLastWriteTimeUtc(nikon1, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var curationPath = CurationFile.SidecarPathFor(_sourceDir);
+        Assert.Single(CurationFile.Load(curationPath).Anomalies["NIKON D50"].AffectedFiles);
+
+        // A second Nikon file, from the same broken camera, turns up later.
+        var nikon2 = Path.Combine(_sourceDir, "nikon2.jpg");
+        TestImages.WriteJpeg(nikon2, 800, 600, new DateTime(2010, 1, 3, 9, 0, 0), camera: "NIKON D50");
+        File.SetLastWriteTimeUtc(nikon2, new DateTime(2010, 8, 6, 10, 0, 0, DateTimeKind.Utc));
+
+        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+
+        var reloaded = CurationFile.Load(curationPath);
+        Assert.Equal(2, reloaded.Anomalies["NIKON D50"].AffectedFiles.Count);
     }
 
     [Fact]

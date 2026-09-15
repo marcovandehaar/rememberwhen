@@ -9,7 +9,8 @@ namespace Indexer.Tests;
 // on the NAS.
 public static class TestImages
 {
-    public static void WriteJpeg(string path, int width, int height, DateTime? capturedAt = null, Coordinate? gps = null)
+    public static void WriteJpeg(
+        string path, int width, int height, DateTime? capturedAt = null, Coordinate? gps = null, string? camera = null)
     {
         var pixels = new byte[width * height * 3];
         var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Rgb24, null, pixels, width * 3);
@@ -18,6 +19,11 @@ public static class TestImages
         if (capturedAt is { } dt)
         {
             metadata.SetQuery("/app1/ifd/exif/{ushort=36867}", dt.ToString("yyyy:MM:dd HH:mm:ss"));
+        }
+
+        if (camera is { } model)
+        {
+            metadata.SetQuery("/app1/ifd/{ushort=272}", model);
         }
 
         if (gps is { } coordinate)

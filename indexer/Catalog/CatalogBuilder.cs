@@ -1,14 +1,15 @@
 using System.IO;
+using Indexer.Curation;
 using Indexer.Media;
 
 namespace Indexer.Catalog;
 
 // One Source Folder, one Memory, split into real Chapters per #20/#31's
-// two-layer heuristic (see ChapterBoundaries). Anomaly detection (#19/#33)
-// and the confirmation UI (#22/#34) are later tickets — a missing capture
-// time here falls back to the file's own timestamp rather than being
-// reported, which is a stopgap those tickets are explicitly allowed to
-// leave behind.
+// two-layer heuristic (see ChapterBoundaries), with anomalies (a wrong
+// camera clock, files with no capture time) surfaced and defaulted per
+// #19/#33 (see AnomalyDetector) rather than silently placed on file mtime.
+// The confirmation UI (#22/#34) is a later ticket — for now, every anomaly
+// gets its #19-decided default handling applied automatically, non-blocking.
 public static class CatalogBuilder
 {
     private const double DefaultShotDuration = 4.0;
@@ -45,16 +46,30 @@ public static class CatalogBuilder
         foreach (var file in files)
         {
             var kind = file.IsVideo ? MediaKind.Video : MediaKind.Photo;
-            read.Add((file, kind, ReadMetadata(file, videoReader, log)));
+            var metadata = kind == MediaKind.Video ? videoReader.Read(file.FullPath) : PhotoMetadataReader.Read(file.FullPath);
+            read.Add((file, kind, metadata));
             onProgress?.Invoke(++stepsDone, totalSteps);
         }
 
+        var detection = AnomalyDetector.Detect(read
+            .Select(entry => new AnomalyDetector.MediaFact(
+                entry.File.RelativePath,
+                Mtime: new DateTimeOffset(File.GetLastWriteTimeUtc(entry.File.FullPath)),
+                ExifCapturedAt: entry.Metadata.CapturedAt,
+                Camera: entry.Metadata.Camera))
+            .ToList());
+
+        foreach (var anomaly in detection.Anomalies) log.WriteLine(anomaly.Message);
+        if (detection.Anomalies.Count > 0)
+        {
+            var curation = CurationFile.CreateEmpty();
+            foreach (var anomaly in detection.Anomalies)
+                curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());
+            curation.Save(CurationFile.SidecarPathFor(sourceFolder));
+        }
+
         var ordered = read
-            .Select(entry => (
-                entry.File,
-                entry.Kind,
-                entry.Metadata,
-                EffectiveCapturedAt: entry.Metadata.CapturedAt ?? new DateTimeOffset(File.GetLastWriteTimeUtc(entry.File.FullPath))))
+            .Select(entry => (entry.File, entry.Kind, entry.Metadata, EffectiveCapturedAt: detection.EffectiveCapturedAt[entry.File.RelativePath]))
             .OrderBy(entry => entry.EffectiveCapturedAt)
             .ToList();
 
@@ -142,19 +157,6 @@ public static class CatalogBuilder
         };
 
         return new RwCatalog { Memories = [memory] };
-    }
-
-    private static MediaMetadata ReadMetadata(MediaFile file, VideoMetadataReader videoReader, TextWriter log)
-    {
-        var metadata = file.IsVideo ? videoReader.Read(file.FullPath) : PhotoMetadataReader.Read(file.FullPath);
-        if (metadata.CapturedAt is null)
-        {
-            log.WriteLine(
-                $"Geen opnametijd voor {file.RelativePath} — valt terug op de bestandsdatum. " +
-                "Tijdelijk: #33 vervangt dit door echte anomaliedetectie.");
-        }
-
-        return metadata;
     }
 
     private static (string MediaRef, double ShotDuration) PublishPhoto(MediaFile file, MediaMetadata metadata, string id, string mediaDir)

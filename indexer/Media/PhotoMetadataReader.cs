@@ -21,6 +21,7 @@ public static class PhotoMetadataReader
 
         DateTimeOffset? capturedAt = null;
         Coordinate? gps = null;
+        string? camera = null;
         if (frame.Metadata is BitmapMetadata metadata)
         {
             if (metadata.DateTaken is { } raw &&
@@ -31,9 +32,22 @@ public static class PhotoMetadataReader
             }
 
             gps = ReadGps(metadata);
+            camera = ReadCamera(metadata);
         }
 
-        return new MediaMetadata(frame.PixelWidth, frame.PixelHeight, capturedAt, Duration: null, gps);
+        return new MediaMetadata(frame.PixelWidth, frame.PixelHeight, capturedAt, Duration: null, gps, camera);
+    }
+
+    // Manufacturer and model are separate EXIF tags; combined into one
+    // stable per-camera string, since that's all the anomaly detector needs
+    // as a grouping key. Either can be absent (skipped rather than leaving
+    // a stray blank).
+    private static string? ReadCamera(BitmapMetadata metadata)
+    {
+        var parts = new[] { metadata.CameraManufacturer, metadata.CameraModel }
+            .Where(part => !string.IsNullOrWhiteSpace(part));
+        var combined = string.Join(" ", parts).Trim();
+        return combined.Length == 0 ? null : combined;
     }
 
     // Only WIC exposes GPS on this machine — the Shell property set used for
