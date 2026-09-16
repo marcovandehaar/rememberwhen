@@ -6,5 +6,9 @@
   "Disneyland Parijs": {
     "lat": 48.8,
     "lon": 2.5
+  },
+  "Raalte": {
+    "lat": 52.4,
+    "lon": 6.3
   }
 }
