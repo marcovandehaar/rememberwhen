@@ -40,8 +40,10 @@ try
     var catalogPath = Path.Combine(outputFolder, "catalog.json");
     File.WriteAllText(catalogPath, JsonSerializer.Serialize(catalog, JsonOptions.Default));
 
+    var memory = catalog.Memories[0];
+    var mediaItemCount = memory.Chapters.Sum(chapter => chapter.MediaItems.Count);
     Console.WriteLine($"Catalogus geschreven: {catalogPath}");
-    Console.WriteLine($"{catalog.Memories[0].Chapters[0].MediaItems.Count} Media Items in '{memoryName}'.");
+    Console.WriteLine($"{mediaItemCount} Media Items in {memory.Chapters.Count} Chapters in '{memoryName}'.");
     return 0;
 }
 catch (Exception ex)

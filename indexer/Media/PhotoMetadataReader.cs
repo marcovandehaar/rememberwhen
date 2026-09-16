@@ -53,8 +53,12 @@ public static class PhotoMetadataReader
     // Only WIC exposes GPS on this machine — the Shell property set used for
     // video has no latitude/longitude among its properties (research/library-
     // survey.md). Stored as three unsigned rationals (degrees, minutes,
-    // seconds) per tag, packed by WIC into a ulong per rational (numerator in
-    // the high 32 bits, denominator in the low 32 bits).
+    // seconds) per tag, packed by WIC into a ulong per rational — denominator
+    // in the high 32 bits, numerator in the low 32 bits. Confirmed against a
+    // real iPhone photo (#31): the opposite assumption reads a 49°/1 degree
+    // component as 1/49th of a degree, collapsing every real coordinate
+    // towards (0, 0). Synthetic fixtures alone never caught this because
+    // TestImages wrote and read GPS with the same (wrong) assumption.
     private static Coordinate? ReadGps(BitmapMetadata metadata)
     {
         var lat = ReadDegrees(metadata, "/app1/ifd/gps/{ushort=2}");
@@ -74,8 +78,8 @@ public static class PhotoMetadataReader
 
         double Part(ulong packed)
         {
-            var numerator = (uint)(packed >> 32);
-            var denominator = (uint)(packed & 0xFFFFFFFF);
+            var denominator = (uint)(packed >> 32);
+            var numerator = (uint)(packed & 0xFFFFFFFF);
             return denominator == 0 ? 0 : (double)numerator / denominator;
         }
 

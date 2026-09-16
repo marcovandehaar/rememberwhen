@@ -44,8 +44,10 @@ public static class TestImages
     }
 
     // EXIF GPS coordinates are three unsigned rationals (degrees, minutes,
-    // seconds); WIC represents each rational as a ulong with the numerator
-    // packed into the high 32 bits and the denominator into the low 32 bits.
+    // seconds); WIC represents each rational as a ulong with the denominator
+    // packed into the high 32 bits and the numerator into the low 32 bits
+    // (confirmed against a real iPhone photo, #31 — the reverse of what an
+    // earlier version of this fixture, and of PhotoMetadataReader, assumed).
     private static void WriteGpsRational(BitmapMetadata metadata, string query, double decimalDegrees)
     {
         var absolute = Math.Abs(decimalDegrees);
@@ -54,7 +56,7 @@ public static class TestImages
         var minutes = (uint)minutesFull;
         var secondsNumerator = (uint)Math.Round((minutesFull - minutes) * 60 * 1000);
 
-        static ulong Pack(uint numerator, uint denominator) => ((ulong)numerator << 32) | denominator;
+        static ulong Pack(uint numerator, uint denominator) => ((ulong)denominator << 32) | numerator;
         metadata.SetQuery(query, new[] { Pack(degrees, 1), Pack(minutes, 1), Pack(secondsNumerator, 1000) });
     }
 }
