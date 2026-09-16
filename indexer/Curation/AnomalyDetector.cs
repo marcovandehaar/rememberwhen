@@ -5,9 +5,20 @@ namespace Indexer.Curation;
 // weak evidence on its own — a clock reset produces a large, internally
 // consistent, entirely wrong cluster. What corroborates it is the file's
 // own mtime (it can't predate being copied off the card) landing back
-// inside the rest of the trip. Only that combination is confident enough to
-// override EXIF; two disagreeing signals with nothing corroborating either
-// one are left alone rather than guessed at (#19 §3).
+// inside the rest of the trip — extended a little past its last EXIF-dated
+// photo, since a real library gets copied off cards sometime after the trip
+// ends, not mid-trip (#39: the real Schotland 2010 photos were batch-copied
+// a day and a half after the last shot, just past a same-day-only window).
+//
+// That extension only ever pushes the window later, never earlier — a copy
+// can't happen before any of the trip was even taken. It's also always
+// measured from the rest of the folder, never from the suspect group's own
+// mtime: borrowing the window from the group under suspicion would let its
+// own (possibly wrong) mtime corroborate itself.
+//
+// Only the combination of disagreeing EXIF and corroborating mtime is
+// confident enough to override EXIF; two disagreeing signals with nothing
+// corroborating either one are left alone rather than guessed at (#19 §3).
 //
 // Separately, a file with no EXIF at all is a normal state (not an
 // anomaly to resolve), but it still can't be placed on mtime — mtime can
@@ -15,6 +26,13 @@ namespace Indexer.Curation;
 // its nearest dated neighbour in the same folder instead.
 public static class AnomalyDetector
 {
+    // How long after the rest of the folder's last known capture a batch
+    // copy off the cards can still plausibly land — generous enough to
+    // cover "copied a few days after getting home" (#39's real case was
+    // about a day and a half) without being wide enough to corroborate an
+    // unrelated camera from a genuinely different, much later trip.
+    private static readonly TimeSpan MaxCopyDelayAfterTrip = TimeSpan.FromDays(7);
+
     public sealed record MediaFact(string RelativePath, DateTimeOffset Mtime, DateTimeOffset? ExifCapturedAt, string? Camera);
 
     public sealed record DetectionResult(
@@ -57,7 +75,8 @@ public static class AnomalyDetector
             var groupMtimeRange = RangeOf(groupFiles.Select(f => f.Mtime));
 
             var exifDisagrees = !Overlaps(groupExifRange, restExifRange);
-            var mtimeCorroborates = Overlaps(groupMtimeRange, restExifRange);
+            var corroborationWindow = (Min: restExifRange.Min, Max: restExifRange.Max + MaxCopyDelayAfterTrip);
+            var mtimeCorroborates = Overlaps(groupMtimeRange, corroborationWindow);
             if (!exifDisagrees || !mtimeCorroborates) continue;
 
             foreach (var file in groupFiles) effective[file.RelativePath] = file.Mtime;

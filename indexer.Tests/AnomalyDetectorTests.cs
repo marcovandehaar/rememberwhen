@@ -36,6 +36,62 @@ public class AnomalyDetectorTests
     }
 
     [Fact]
+    public void A_camera_group_copied_a_day_after_the_trip_ended_is_still_corroborated()
+    {
+        // The real Schotland 2010 shape (#39): the whole folder was copied
+        // off cards in one batch on 6 August, a day after the last Sony
+        // photo's own capture time (5 August) — so the Nikon group's mtime
+        // falls just past the rest's own EXIF range, not inside it. A
+        // handful of Sony files also carry that same batch-copy mtime
+        // (their own EXIF is untouched by it), which is incidental here —
+        // corroboration is checked against the rest's EXIF range widened by
+        // a plausible copy delay, not against the rest's own mtimes.
+        var files = new[]
+        {
+            new AnomalyDetector.MediaFact("nikon1.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(1, 30), Camera: "NIKON D50"),
+            new AnomalyDetector.MediaFact("nikon2.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(1, 30), Camera: "NIKON D50"),
+            new AnomalyDetector.MediaFact("nikon3.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(1, 30), Camera: "NIKON D50"),
+            new AnomalyDetector.MediaFact("sony1.jpg", Mtime: D(8, 3), ExifCapturedAt: D(8, 3), Camera: "SONY DSC-W70"),
+            new AnomalyDetector.MediaFact("sony2.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(8, 5), Camera: "SONY DSC-W70"),
+        };
+
+        var result = AnomalyDetector.Detect(files);
+
+        Assert.Equal(D(8, 6, 21), result.EffectiveCapturedAt["nikon1.jpg"]);
+        Assert.Equal(D(8, 6, 21), result.EffectiveCapturedAt["nikon2.jpg"]);
+        Assert.Equal(D(8, 6, 21), result.EffectiveCapturedAt["nikon3.jpg"]);
+
+        var anomaly = Assert.Single(result.Anomalies);
+        Assert.Equal("NIKON D50", anomaly.Cause);
+        Assert.Equal(AnomalyHandling.UseMtime, anomaly.Handling);
+        Assert.Equal(["nikon1.jpg", "nikon2.jpg", "nikon3.jpg"], anomaly.AffectedFiles);
+    }
+
+    [Fact]
+    public void The_correct_majority_is_not_flagged_just_because_a_batch_copy_gave_it_the_same_mtime_as_the_broken_minority()
+    {
+        // A whole-folder batch copy gives Sony files the same mtime as the
+        // Nikon group it copied alongside — corroborating the minority's
+        // mtime against the majority's own mtime range (rather than its
+        // EXIF range) would make this cut both ways and flag the Sony
+        // majority too, using Nikon's own broken January EXIF as "the rest".
+        var files = new[]
+        {
+            new AnomalyDetector.MediaFact("nikon1.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(1, 30), Camera: "NIKON D50"),
+            new AnomalyDetector.MediaFact("nikon2.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(1, 30), Camera: "NIKON D50"),
+            new AnomalyDetector.MediaFact("sony1.jpg", Mtime: D(8, 3), ExifCapturedAt: D(8, 3), Camera: "SONY DSC-W70"),
+            new AnomalyDetector.MediaFact("sony2.jpg", Mtime: D(8, 6, 21), ExifCapturedAt: D(8, 5), Camera: "SONY DSC-W70"),
+        };
+
+        var result = AnomalyDetector.Detect(files);
+
+        var anomaly = Assert.Single(result.Anomalies);
+        Assert.Equal("NIKON D50", anomaly.Cause);
+        Assert.Equal(D(8, 3), result.EffectiveCapturedAt["sony1.jpg"]);
+        Assert.Equal(D(8, 5), result.EffectiveCapturedAt["sony2.jpg"]);
+    }
+
+    [Fact]
     public void A_camera_whose_exif_and_mtime_both_disagree_with_everyone_is_not_flagged()
     {
         // No corroborating signal — could just be separate content (a
