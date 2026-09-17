@@ -10,5 +10,9 @@
   "Raalte": {
     "lat": 52.4,
     "lon": 6.3
+  },
+  "Whistler": {
+    "lat": 50.1,
+    "lon": -123
   }
 }
