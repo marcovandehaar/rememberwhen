@@ -22,7 +22,8 @@ public static class CatalogBuilder
         string outputFolder,
         string curationFolder,
         TextWriter? log = null,
-        Action<int, int>? onProgress = null)
+        Action<int, int>? onProgress = null,
+        CancellationToken cancellationToken = default)
     {
         var memoryId = Slug.From(memoryName);
         log ??= Console.Out;
@@ -44,6 +45,15 @@ public static class CatalogBuilder
         if (files.Count == 0)
             throw new InvalidOperationException($"Geen ondersteunde media gevonden in {sourceFolder}.");
 
+        // Cover = the earliest Media Item that's a photo (CONTEXT.md: Memory
+        // calls it "the photo shown on its globe pin" — a video can't be
+        // one). Cheap to know from the extension alone, so — like the
+        // Gazetteer lookup above — this is checked before the slow
+        // read-and-publish pass rather than discovered partway through it.
+        if (files.All(f => f.IsVideo))
+            throw new InvalidOperationException(
+                $"Geen enkele foto in {sourceFolder}: de cover is altijd een foto (CONTEXT.md: Memory), en deze map bevat alleen video's.");
+
         using var videoReader = new VideoMetadataReader();
 
         // Two passes over the same file count — reading metadata (to sort
@@ -55,6 +65,7 @@ public static class CatalogBuilder
         var read = new List<(MediaFile File, MediaKind Kind, MediaMetadata Metadata)>();
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var kind = file.IsVideo ? MediaKind.Video : MediaKind.Photo;
             var metadata = kind == MediaKind.Video ? videoReader.Read(file.FullPath) : PhotoMetadataReader.Read(file.FullPath);
             read.Add((file, kind, metadata));
@@ -101,6 +112,10 @@ public static class CatalogBuilder
         var mediaDir = Path.Combine(outputFolder, "media");
         Directory.CreateDirectory(mediaDir);
 
+        // Guaranteed to find one — the all-video check above already ruled
+        // out the only way it couldn't.
+        var coverIndex = ordered.FindIndex(entry => entry.Kind == MediaKind.Photo);
+
         var chapters = new List<RwChapter>();
         var chapterMediaItems = new List<RwMediaItem>();
         Coordinate? chapterLocation = null;
@@ -121,54 +136,70 @@ public static class CatalogBuilder
             chapterLocation = null;
         }
 
-        for (var i = 0; i < ordered.Count; i++)
+        // Tracks only newly-created files, not ones this run overwrote —
+        // reindexing an already-published Source Folder regenerates the
+        // same filenames the live catalogue still references, and deleting
+        // those on cancellation would leave that catalogue pointing at
+        // nothing. Cancelling a first-time index, where every file here is
+        // new, cleans up everything it wrote.
+        var newlyWrittenFiles = new List<string>();
+        try
         {
-            var (file, kind, metadata, effectiveCapturedAt) = ordered[i];
-
-            if (i > 0)
+            for (var i = 0; i < ordered.Count; i++)
             {
-                var previous = ordered[i - 1];
-                if (ChapterBoundaries.IsBoundary(previous.EffectiveCapturedAt, previous.Metadata.Gps, effectiveCapturedAt, metadata.Gps))
-                    FlushChapter();
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                var (file, kind, metadata, effectiveCapturedAt) = ordered[i];
 
-            var chapterId = $"{memoryId}-c{chapterNumber}";
-            var id = $"{chapterId}-{i:D4}-{Slug.From(Path.GetFileNameWithoutExtension(file.RelativePath))}";
-
-            var (mediaRef, shotDuration) = kind == MediaKind.Video
-                ? PublishVideo(file, metadata, id, mediaDir)
-                : PublishPhoto(file, metadata, id, mediaDir);
-            onProgress?.Invoke(++stepsDone, totalSteps);
-
-            if (i == 0)
-            {
-                // Cover = earliest Media Item chronologically (CONTEXT.md: Memory).
-                if (kind == MediaKind.Video)
+                if (i > 0)
                 {
-                    throw new InvalidOperationException(
-                        "Het vroegste Media Item is een video; #25 sloeg poster-frames voor de cover bewust over. " +
-                        "Kies een Source Folder waarvan de eerste opname een foto is, of los dit expliciet op.");
+                    var previous = ordered[i - 1];
+                    if (ChapterBoundaries.IsBoundary(previous.EffectiveCapturedAt, previous.Metadata.Gps, effectiveCapturedAt, metadata.Gps))
+                        FlushChapter();
                 }
 
-                var thumbFileName = $"{id}-thumb.jpg";
-                DerivativeGenerator.GeneratePinThumbnail(file.FullPath, Path.Combine(mediaDir, thumbFileName));
-                coverImage = $"media/{thumbFileName}";
-            }
+                var chapterId = $"{memoryId}-c{chapterNumber}";
+                var id = $"{chapterId}-{i:D4}-{Slug.From(Path.GetFileNameWithoutExtension(file.RelativePath))}";
 
-            chapterMediaItems.Add(new RwMediaItem
-            {
-                Id = id,
-                MediaRef = mediaRef,
-                Type = kind,
-                CapturedAt = metadata.CapturedAt,
-                StoryRect = StoryRectFormula.Compute(metadata.Width, metadata.Height, i),
-                ShotDuration = shotDuration,
-            });
-            // A Chapter has a location as soon as any of its Media Items
-            // carries GPS (CONTEXT.md: Chapter) — first one found wins.
-            chapterLocation ??= metadata.Gps;
+                var (mediaRef, shotDuration, isNew) = kind == MediaKind.Video
+                    ? PublishVideo(file, metadata, id, mediaDir)
+                    : PublishPhoto(file, metadata, id, mediaDir);
+                if (isNew) newlyWrittenFiles.Add(Path.Combine(outputFolder, mediaRef));
+                onProgress?.Invoke(++stepsDone, totalSteps);
+
+                if (i == coverIndex)
+                {
+                    var thumbFileName = $"{id}-thumb.jpg";
+                    var thumbPath = Path.Combine(mediaDir, thumbFileName);
+                    var thumbIsNew = !File.Exists(thumbPath);
+                    DerivativeGenerator.GeneratePinThumbnail(file.FullPath, thumbPath);
+                    if (thumbIsNew) newlyWrittenFiles.Add(thumbPath);
+                    coverImage = $"media/{thumbFileName}";
+                }
+
+                chapterMediaItems.Add(new RwMediaItem
+                {
+                    Id = id,
+                    MediaRef = mediaRef,
+                    Type = kind,
+                    CapturedAt = metadata.CapturedAt,
+                    StoryRect = StoryRectFormula.Compute(metadata.Width, metadata.Height, i),
+                    ShotDuration = shotDuration,
+                });
+                // A Chapter has a location as soon as any of its Media Items
+                // carries GPS (CONTEXT.md: Chapter) — first one found wins.
+                chapterLocation ??= metadata.Gps;
+            }
+            FlushChapter();
         }
-        FlushChapter();
+        catch (OperationCanceledException)
+        {
+            foreach (var path in newlyWrittenFiles)
+            {
+                try { File.Delete(path); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            throw;
+        }
 
         var memory = new RwMemory
         {
@@ -183,19 +214,23 @@ public static class CatalogBuilder
         return new RwCatalog { Memories = [memory] };
     }
 
-    private static (string MediaRef, double ShotDuration) PublishPhoto(MediaFile file, MediaMetadata metadata, string id, string mediaDir)
+    private static (string MediaRef, double ShotDuration, bool IsNew) PublishPhoto(MediaFile file, MediaMetadata metadata, string id, string mediaDir)
     {
         var fileName = $"{id}-story.jpg";
-        DerivativeGenerator.GenerateStoryDerivative(file.FullPath, metadata.Width, Path.Combine(mediaDir, fileName));
-        return ($"media/{fileName}", DefaultShotDuration);
+        var path = Path.Combine(mediaDir, fileName);
+        var isNew = !File.Exists(path);
+        DerivativeGenerator.GenerateStoryDerivative(file.FullPath, metadata.Width, path);
+        return ($"media/{fileName}", DefaultShotDuration, isNew);
     }
 
-    private static (string MediaRef, double ShotDuration) PublishVideo(MediaFile file, MediaMetadata metadata, string id, string mediaDir)
+    private static (string MediaRef, double ShotDuration, bool IsNew) PublishVideo(MediaFile file, MediaMetadata metadata, string id, string mediaDir)
     {
         // Original 1080p file, unmodified — no transcoding, no poster frame (#25).
         var fileName = $"{id}{Path.GetExtension(file.FullPath).ToLowerInvariant()}";
-        File.Copy(file.FullPath, Path.Combine(mediaDir, fileName), overwrite: true);
-        return ($"media/{fileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration);
+        var path = Path.Combine(mediaDir, fileName);
+        var isNew = !File.Exists(path);
+        File.Copy(file.FullPath, path, overwrite: true);
+        return ($"media/{fileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, isNew);
     }
 
     // Best-effort: an unwritable Curation-folder is the exact scenario the

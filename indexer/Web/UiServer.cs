@@ -153,7 +153,7 @@ public static class UiServer
                 var log = new RunLogWriter(state);
                 var gazetteer = Gazetteer.Load(gazetteerPath);
                 var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, curationFolder, log,
-                    onProgress: state.SetProgress);
+                    onProgress: state.SetProgress, cancellationToken: state.CancellationToken);
                 var newMemory = built.Memories[0];
 
                 var existingCatalog = CatalogStore.Load(catalogPath);
@@ -184,6 +184,21 @@ public static class UiServer
             var run = runs.Get(id);
             if (run is null) return Results.NotFound(new ErrorResponse("Onbekende run."));
 
+            return Results.Json(
+                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath, run.ProgressCurrent, run.ProgressTotal),
+                JsonOptions.Default);
+        });
+
+        app.MapPost("/api/runs/{id}/cancel", (string id) =>
+        {
+            var run = runs.Get(id);
+            if (run is null) return Results.NotFound(new ErrorResponse("Onbekende run."));
+
+            // Cooperative — CatalogBuilder.Build notices between files and
+            // unwinds, cleaning up what it wrote for this run (see there).
+            // Nothing already published before this run started is touched:
+            // the catalogue is only replaced after Build returns.
+            run.RequestCancel();
             return Results.Json(
                 new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath, run.ProgressCurrent, run.ProgressTotal),
                 JsonOptions.Default);

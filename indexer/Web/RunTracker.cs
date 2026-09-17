@@ -7,12 +7,14 @@ public enum RunStatus
     Running,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 public sealed class RunState
 {
     private readonly List<string> _log = [];
     private readonly object _gate = new();
+    private readonly CancellationTokenSource _cts = new();
 
     public string Id { get; } = Guid.NewGuid().ToString("n");
     public RunStatus Status { get; private set; } = RunStatus.Running;
@@ -20,6 +22,7 @@ public sealed class RunState
     public string? CatalogPath { get; private set; }
     public int? ProgressCurrent { get; private set; }
     public int? ProgressTotal { get; private set; }
+    public CancellationToken CancellationToken => _cts.Token;
 
     public void AppendLog(string line)
     {
@@ -48,6 +51,13 @@ public sealed class RunState
         Error = error;
         Status = RunStatus.Failed;
     }
+
+    public void MarkCancelled() => Status = RunStatus.Cancelled;
+
+    // Cooperative: CatalogBuilder.Build checks this between files, so a
+    // cancelled run still unwinds cleanly (cleaning up what it already
+    // wrote, see CatalogBuilder.cs) rather than stopping mid-write.
+    public void RequestCancel() => _cts.Cancel();
 }
 
 // Runs are executed in a background Task; the UI polls GET /api/runs/{id}
@@ -66,6 +76,10 @@ public sealed class RunTracker
             try
             {
                 body(run);
+            }
+            catch (OperationCanceledException)
+            {
+                run.MarkCancelled();
             }
             catch (Exception ex)
             {

@@ -266,6 +266,22 @@ public class CatalogBuilderTests : IDisposable
     }
 
     [Fact]
+    public void Refuses_a_source_folder_with_no_photo_at_all_before_the_slow_pass()
+    {
+        // No real video content needed: MediaFile.IsVideo comes from the
+        // extension alone (SourceFolderReader), so this check — like the
+        // Gazetteer one above — fires before VideoMetadataReader ever
+        // touches the file.
+        File.WriteAllBytes(Path.Combine(_sourceDir, "clip.mp4"), []);
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null));
+        Assert.Contains("cover", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void An_unwritable_curation_file_warns_but_does_not_block_the_rest_of_the_run()
     {
         // Real-world case: the Curation-folder sits somewhere the operator
@@ -311,5 +327,66 @@ public class CatalogBuilderTests : IDisposable
 
         var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
         Assert.Single(items);
+    }
+
+    [Fact]
+    public void Cancelling_a_first_time_index_deletes_every_media_file_it_already_wrote()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "c.jpg"), 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+
+        using var cts = new CancellationTokenSource();
+        // Fires once the first (cover) item's derivatives are on disk, so
+        // there's something to prove got cleaned up — cancellation is only
+        // noticed at the top of the *next* loop iteration (see
+        // CatalogBuilder.cs), so item b never gets published at all.
+        void CancelAfterFirstItem(int current, int total)
+        {
+            if (current == 4) cts.Cancel(); // step 4 = item a's publish step (3 read + 1 publish)
+        }
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null,
+                onProgress: CancelAfterFirstItem, cancellationToken: cts.Token));
+
+        var mediaDir = Path.Combine(_outputDir, "media");
+        Assert.Empty(Directory.GetFiles(mediaDir));
+    }
+
+    [Fact]
+    public void Cancelling_a_reindex_leaves_previously_published_files_in_place()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
+
+        var mediaDir = Path.Combine(_outputDir, "media");
+        var publishedBefore = Directory.GetFiles(mediaDir).ToList();
+        Assert.NotEmpty(publishedBefore); // a's story + thumb, b's story
+
+        // Two more photos turn up before the reindex — c is genuinely new,
+        // d never gets reached at all.
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "c.jpg"), 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "d.jpg"), 800, 600, new DateTime(2016, 7, 1, 11, 0, 0));
+
+        using var cts = new CancellationTokenSource();
+        // 4 files: steps 1-4 read, 5-8 publish (a,b,c,d in that chronological
+        // order). Cancel once c (step 7) is on disk, before d is reached.
+        void CancelAfterThirdItem(int current, int total)
+        {
+            if (current == 7) cts.Cancel();
+        }
+
+        Assert.Throws<OperationCanceledException>(() =>
+            CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null,
+                onProgress: CancelAfterThirdItem, cancellationToken: cts.Token));
+
+        foreach (var path in publishedBefore) Assert.True(File.Exists(path), $"{path} should have survived the cancelled reindex.");
+        Assert.Equal(publishedBefore.Count, Directory.GetFiles(mediaDir).Length); // c's new file cleaned up, d's never wrote
     }
 }

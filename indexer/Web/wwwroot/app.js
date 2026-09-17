@@ -260,6 +260,7 @@ function renderUnindexedDetail(detail, folder) {
     <p class="detail-path">${folder.path}</p>
     <div class="detail-sub">${folder.exists ? 'Nog niet geïndexeerd.' : 'Deze map bestaat niet (meer) op deze locatie.'}</div>
     ${attempt?.error ? `<p class="error" style="max-width:480px">Indexeren mislukt: ${attempt.error}</p>` : ''}
+    ${!attempt?.error && attempt?.cancelled ? `<p class="hint" style="max-width:480px">Indexeren geannuleerd; niets gepubliceerd.</p>` : ''}
     ${folder.exists ? `
       <div class="field"><label for="memory-name">Memory-naam</label><input type="text" id="memory-name" placeholder="Zeeland 2016" value="${attempt?.memoryName ?? ''}" /></div>
       <div class="field"><label for="destination-name">Destination-naam</label><input type="text" id="destination-name" list="destination-names" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" /></div>
@@ -304,18 +305,34 @@ async function startIndex(path, memoryName, destinationName) {
 }
 
 function renderRunningDetail(detail, folder) {
-  const { progressCurrent, progressTotal } = activeRun;
+  const { progressCurrent, progressTotal, cancelling } = activeRun;
   // No value/max attribute at all (rather than 0/0) renders as the browser's
   // built-in indeterminate/striped animation — the honest state before the
   // first progress callback has landed, with no extra code needed for it.
   const hasProgress = progressTotal != null && progressTotal > 0;
   detail.innerHTML = `
-    <div class="detail-head"><h2>${leafName(folder.path)}</h2></div>
+    <div class="detail-head">
+      <h2>${leafName(folder.path)}</h2>
+      <div class="detail-actions">
+        <button type="button" class="button ghost small" id="cancel-run-button" ${cancelling ? 'disabled' : ''}>
+          ${cancelling ? 'Bezig met annuleren…' : 'Annuleren'}
+        </button>
+      </div>
+    </div>
     <div class="detail-sub"><span class="spinner"></span>Bezig met indexeren…</div>
     <progress id="run-progress" ${hasProgress ? `value="${progressCurrent}" max="${progressTotal}"` : ''}></progress>
     <div class="log-box" id="run-log"></div>
   `;
   document.getElementById('run-log').textContent = activeRun.log.join('\n');
+  document.getElementById('cancel-run-button').addEventListener('click', cancelActiveRun);
+}
+
+async function cancelActiveRun() {
+  const run = activeRun;
+  if (!run || run.cancelling) return;
+  run.cancelling = true;
+  renderDetail();
+  await api('POST', `/api/runs/${run.runId}/cancel`);
 }
 
 async function pollRun() {
@@ -339,6 +356,8 @@ async function pollRun() {
 
     if (state.status === 'failed') {
       attempts[run.path] = { ...attempts[run.path], error: state.error };
+    } else if (state.status === 'cancelled') {
+      attempts[run.path] = { ...attempts[run.path], cancelled: true };
     } else {
       delete attempts[run.path];
       // The final "Catalogus bijgewerkt: ..." line just confirms success; only
@@ -359,6 +378,7 @@ async function pollRun() {
 function renderIndexedDetail(detail, folder) {
   const idx = folder.indexed;
   const reindexError = attempts[folder.path]?.error;
+  const reindexCancelled = !reindexError && attempts[folder.path]?.cancelled;
   const notices = lastNotices[folder.path] ?? [];
 
   detail.innerHTML = `
@@ -373,6 +393,7 @@ function renderIndexedDetail(detail, folder) {
       </div>
     </div>
     ${reindexError ? `<p class="error" style="max-width:480px">Herindexeren mislukt: ${reindexError}</p>` : ''}
+    ${reindexCancelled ? `<p class="hint" style="max-width:480px">Herindexeren geannuleerd; de bestaande foto's hierboven staan nog onveranderd.</p>` : ''}
     ${notices.length > 0 ? `
       <details class="notices">
         <summary>${notices.length} melding${notices.length === 1 ? '' : 'en'} tijdens het indexeren</summary>

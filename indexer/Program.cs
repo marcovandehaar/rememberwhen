@@ -32,10 +32,22 @@ var outputFolder = args[3];
 var gazetteerPath = args.Length > 4 ? args[4] : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "gazetteer.json");
 var curationFolder = args.Length > 5 ? args[5] : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "curation-logs");
 
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    // Let CatalogBuilder unwind and clean up what it already wrote (see
+    // there) instead of the process dying mid-write on the default Ctrl+C
+    // behaviour.
+    e.Cancel = true;
+    Console.Error.WriteLine("Geannuleerd, opruimen…");
+    cts.Cancel();
+};
+
 try
 {
     var gazetteer = Gazetteer.Load(gazetteerPath);
-    var catalog = CatalogBuilder.Build(sourceFolder, memoryName, destinationName, gazetteer, outputFolder, curationFolder);
+    var catalog = CatalogBuilder.Build(sourceFolder, memoryName, destinationName, gazetteer, outputFolder, curationFolder,
+        cancellationToken: cts.Token);
 
     Directory.CreateDirectory(outputFolder);
     var catalogPath = Path.Combine(outputFolder, "catalog.json");
@@ -46,6 +58,11 @@ try
     Console.WriteLine($"Catalogus geschreven: {catalogPath}");
     Console.WriteLine($"{mediaItemCount} Media Items in {memory.Chapters.Count} Chapters in '{memoryName}'.");
     return 0;
+}
+catch (OperationCanceledException)
+{
+    Console.Error.WriteLine("Indexeren geannuleerd; niets gepubliceerd.");
+    return 130; // Conventional shell exit code for SIGINT.
 }
 catch (Exception ex)
 {
