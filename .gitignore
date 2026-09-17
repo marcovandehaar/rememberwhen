@@ -18,6 +18,7 @@ $RECYCLE.BIN/
 prototype/
 spike/media/
 indexer/output/
+indexer/curation-logs/
 
 # Operator-lokale instellingen (Source Folder-paden zijn machine-specifiek)
 indexer/config.json

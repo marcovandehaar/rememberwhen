@@ -8,6 +8,7 @@ public class CatalogBuilderTests : IDisposable
 {
     private readonly string _sourceDir;
     private readonly string _outputDir;
+    private readonly string _curationDir;
     private readonly string _gazetteerPath;
 
     public CatalogBuilderTests()
@@ -15,6 +16,7 @@ public class CatalogBuilderTests : IDisposable
         var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         _sourceDir = Path.Combine(root, "source");
         _outputDir = Path.Combine(root, "output");
+        _curationDir = Path.Combine(root, "curation");
         Directory.CreateDirectory(_sourceDir);
 
         _gazetteerPath = Path.Combine(root, "gazetteer.json");
@@ -30,7 +32,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 4000, 3000, new DateTime(2016, 7, 1, 8, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var memory = Assert.Single(catalog.Memories);
         Assert.Equal("zeeland-2016", memory.Id);
@@ -49,7 +51,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var items = catalog.Memories[0].Chapters[0].MediaItems;
         Assert.True(items[0].CapturedAt < items[1].CapturedAt);
@@ -63,7 +65,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "earliest.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var memory = catalog.Memories[0];
         Assert.Contains("earliest", memory.CoverImage);
@@ -76,7 +78,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 4000, 3000, new DateTime(2016, 7, 1, 8, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var item = catalog.Memories[0].Chapters[0].MediaItems[0];
         Assert.Equal(MediaKind.Photo, item.Type);
@@ -91,7 +93,7 @@ public class CatalogBuilderTests : IDisposable
         var gazetteer = Gazetteer.Load(_gazetteerPath);
 
         Assert.Throws<KeyNotFoundException>(() =>
-            CatalogBuilder.Build(_sourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, TextWriter.Null));
+            CatalogBuilder.Build(_sourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, _curationDir, TextWriter.Null));
     }
 
     [Fact]
@@ -103,7 +105,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "day3.jpg"), 800, 600, new DateTime(2016, 7, 3, 9, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var chapter = Assert.Single(catalog.Memories[0].Chapters);
         Assert.Equal(2, chapter.MediaItems.Count);
@@ -118,7 +120,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "day4.jpg"), 800, 600, new DateTime(2016, 7, 4, 9, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var chapters = catalog.Memories[0].Chapters;
         Assert.Equal(2, chapters.Count);
@@ -135,7 +137,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "afternoon.jpg"), 800, 600, new DateTime(2016, 7, 1, 15, 0, 0), afternoon);
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var chapters = catalog.Memories[0].Chapters;
         Assert.Equal(2, chapters.Count);
@@ -154,7 +156,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "day4.jpg"), 800, 600, new DateTime(2016, 7, 4, 9, 0, 0), nearbyPlace);
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var chapter = Assert.Single(catalog.Memories[0].Chapters);
         Assert.Equal(2, chapter.MediaItems.Count);
@@ -178,13 +180,13 @@ public class CatalogBuilderTests : IDisposable
         }
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         // Non-blocking: all five files still end up as Media Items.
         var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
         Assert.Equal(5, items.Count);
 
-        var curation = CurationFile.Load(CurationFile.SidecarPathFor(_sourceDir));
+        var curation = CurationFile.Load(CurationFile.PathFor(_curationDir, Slug.From("Schotland 2010")));
         var anomaly = curation.Anomalies["NIKON D50"];
         Assert.Equal(AnomalyHandling.UseMtime, anomaly.Handling);
         Assert.Equal(3, anomaly.AffectedFiles.Count);
@@ -207,7 +209,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "z_photo.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
         Assert.Equal(4, items.Count);
@@ -218,7 +220,7 @@ public class CatalogBuilderTests : IDisposable
         Assert.True(IndexOfSuffix("pano-1") < IndexOfSuffix("pano-2"));
         Assert.True(IndexOfSuffix("pano-2") < IndexOfSuffix("z-photo"));
 
-        var curation = CurationFile.Load(CurationFile.SidecarPathFor(_sourceDir));
+        var curation = CurationFile.Load(CurationFile.PathFor(_curationDir, Slug.From("Zeeland 2016")));
         var anomaly = curation.Anomalies["geen-opnametijd"];
         Assert.Equal(AnomalyHandling.FilenameOrder, anomaly.Handling);
         Assert.Equal(2, anomaly.AffectedFiles.Count);
@@ -234,9 +236,9 @@ public class CatalogBuilderTests : IDisposable
         File.SetLastWriteTimeUtc(nikon1, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
 
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
-        var curationPath = CurationFile.SidecarPathFor(_sourceDir);
+        var curationPath = CurationFile.PathFor(_curationDir, Slug.From("Schotland 2010"));
         Assert.Single(CurationFile.Load(curationPath).Anomalies["NIKON D50"].AffectedFiles);
 
         // A second Nikon file, from the same broken camera, turns up later.
@@ -244,7 +246,7 @@ public class CatalogBuilderTests : IDisposable
         TestImages.WriteJpeg(nikon2, 800, 600, new DateTime(2010, 1, 3, 9, 0, 0), camera: "NIKON D50");
         File.SetLastWriteTimeUtc(nikon2, new DateTime(2010, 8, 6, 10, 0, 0, DateTimeKind.Utc));
 
-        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, TextWriter.Null);
+        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var reloaded = CurationFile.Load(curationPath);
         Assert.Equal(2, reloaded.Anomalies["NIKON D50"].AffectedFiles.Count);
@@ -260,34 +262,54 @@ public class CatalogBuilderTests : IDisposable
         var gazetteer = Gazetteer.Load(_gazetteerPath);
 
         Assert.Throws<KeyNotFoundException>(() =>
-            CatalogBuilder.Build(missingSourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, TextWriter.Null));
+            CatalogBuilder.Build(missingSourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, _curationDir, TextWriter.Null));
     }
 
     [Fact]
-    public void An_unwritable_curation_sidecar_warns_but_does_not_block_the_rest_of_the_run()
+    public void An_unwritable_curation_file_warns_but_does_not_block_the_rest_of_the_run()
     {
-        // Real-world case: the Source Folder sits on a share where the
-        // operator can read but not write next to it (e.g. an archived
-        // year/month on a NAS). The sidecar is a record for the operator,
-        // not something the catalogue depends on — losing it must not
-        // sink the whole run (matches the anomalies themselves already
-        // being non-blocking, see #19/#33).
+        // Real-world case: the Curation-folder sits somewhere the operator
+        // normally has write access, but that can still fail transiently.
+        // The curation file is a record for the operator, not something the
+        // catalogue depends on — losing it must not sink the whole run
+        // (matches the anomalies themselves already being non-blocking,
+        // see #19/#33).
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony1.jpg"), 800, 600, new DateTime(2010, 8, 1, 9, 0, 0), camera: "SONY DSC-W70");
         var nikon1 = Path.Combine(_sourceDir, "nikon1.jpg");
         TestImages.WriteJpeg(nikon1, 800, 600, new DateTime(2010, 1, 2, 9, 0, 0), camera: "NIKON D50");
         File.SetLastWriteTimeUtc(nikon1, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
 
-        // A directory sitting at the sidecar's path makes File.WriteAllText
-        // fail with UnauthorizedAccessException, standing in for a
-        // permission-denied NAS write without needing real ACLs.
-        Directory.CreateDirectory(CurationFile.SidecarPathFor(_sourceDir));
+        // A directory sitting at the curation file's path makes
+        // File.WriteAllText fail with UnauthorizedAccessException, standing
+        // in for a permission-denied write without needing real ACLs.
+        Directory.CreateDirectory(CurationFile.PathFor(_curationDir, Slug.From("Schotland 2010")));
 
         var log = new StringWriter();
         var gazetteer = Gazetteer.Load(_gazetteerPath);
-        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, log);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, _curationDir, log);
 
         var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
         Assert.Equal(2, items.Count);
         Assert.Contains("curation", log.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void An_unwritable_curation_folder_itself_warns_but_does_not_block_the_rest_of_the_run()
+    {
+        // Same non-blocking guarantee, but for the folder that would hold
+        // both the log file and the curation file, not just the curation
+        // file within it — e.g. the configured location is briefly
+        // unreachable (a NAS hiccup).
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+
+        // A file sitting at the Curation-folder's own path makes
+        // Directory.CreateDirectory fail with IOException.
+        File.WriteAllText(_curationDir, "");
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
+
+        var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
+        Assert.Single(items);
     }
 }

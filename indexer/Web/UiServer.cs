@@ -141,6 +141,7 @@ public static class UiServer
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
             var mediaDir = Path.Combine(outputFolder, "media");
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
+            var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
 
             var run = runs.Start(state =>
             {
@@ -151,7 +152,7 @@ public static class UiServer
                 // its replacement actually landed.
                 var log = new RunLogWriter(state);
                 var gazetteer = Gazetteer.Load(gazetteerPath);
-                var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, log,
+                var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, curationFolder, log,
                     onProgress: state.SetProgress);
                 var newMemory = built.Memories[0];
 
@@ -301,6 +302,26 @@ public static class UiServer
             return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
         });
 
+        app.MapPut("/api/settings/curation-folder", (PathRequest body) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Path))
+                return Results.BadRequest(new ErrorResponse("Curatie- en logs-locatie mag niet leeg zijn."));
+
+            try
+            {
+                ResolveRelativeToConfig(configPath, body.Path);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return Results.BadRequest(new ErrorResponse($"Ongeldig pad: {ex.Message}"));
+            }
+
+            var config = IndexerConfig.Load(configPath);
+            config.CurationFolder = body.Path;
+            config.Save(configPath);
+            return Results.Json(BuildSettingsView(configPath), JsonOptions.Default);
+        });
+
         app.MapPut("/api/settings/source-folders-root", (PathRequest body) =>
         {
             var config = IndexerConfig.Load(configPath);
@@ -381,28 +402,31 @@ public static class UiServer
             }
 
             // The NAS user has scoped read/write, and this credential applies
-            // per host, not per path — so when the output location is on the
+            // per host, not per path — so when a write location is on the
             // same NAS, it's covered automatically. Test it the same way:
             // for real, not just "is it configured". A write test, not a read
             // test, since that's what indexing actually needs there.
-            var outputResolved = ResolveRelativeToConfig(configPath, config.OutputFolder);
-            var outputHost = UncHost(outputResolved);
-            if (outputHost is not null)
+            void TestWriteAccess(string label, string resolved)
             {
+                if (UncHost(resolved) is not { } writeHost) return;
+
                 try
                 {
-                    Directory.CreateDirectory(outputResolved);
-                    var marker = Path.Combine(outputResolved, $".rememberwhen-test-{Guid.NewGuid():n}");
+                    Directory.CreateDirectory(resolved);
+                    var marker = Path.Combine(resolved, $".rememberwhen-test-{Guid.NewGuid():n}");
                     File.WriteAllText(marker, "");
                     File.Delete(marker);
-                    lines.Add($"Output-locatie: schrijftoegang bevestigd op {outputHost}.");
+                    lines.Add($"{label}: schrijftoegang bevestigd op {writeHost}.");
                 }
                 catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException or IOException)
                 {
                     ok = false;
-                    lines.Add($"Output-locatie: {ex.Message}");
+                    lines.Add($"{label}: {ex.Message}");
                 }
             }
+
+            TestWriteAccess("Output-locatie", ResolveRelativeToConfig(configPath, config.OutputFolder));
+            TestWriteAccess("Curatie- en logs-locatie", ResolveRelativeToConfig(configPath, config.CurationFolder));
 
             var message = string.Join("\n", lines);
             return ok ? Results.Json(new TestConnectionResult(message)) : Results.BadRequest(new ErrorResponse(message));
@@ -473,6 +497,7 @@ public static class UiServer
         var config = IndexerConfig.Load(configPath);
         var gazetteerPath = ResolveRelativeToConfig(configPath, config.GazetteerPath);
         var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+        var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
         var sourceFoldersRootResolved = string.IsNullOrWhiteSpace(config.SourceFoldersRoot)
             ? null
             : ResolveRelativeToConfig(configPath, config.SourceFoldersRoot);
@@ -481,6 +506,7 @@ public static class UiServer
         return new SettingsView(
             config.GazetteerPath, gazetteerPath, File.Exists(gazetteerPath),
             config.OutputFolder, outputFolder,
+            config.CurationFolder, curationFolder,
             config.SourceFoldersRoot, sourceFoldersRootResolved,
             nasCredentialsHost, nasCredentialsHost is null ? null : CredentialStore.TryGetUsername(nasCredentialsHost));
     }
@@ -539,6 +565,7 @@ public sealed record FolderView(string Path, bool Exists, IndexedView? Indexed);
 public sealed record SettingsView(
     string GazetteerPath, string GazetteerPathResolved, bool GazetteerExists,
     string OutputFolder, string OutputFolderResolved,
+    string CurationFolder, string CurationFolderResolved,
     string SourceFoldersRoot, string? SourceFoldersRootResolved,
     string? NasCredentialsHost, string? NasCredentialsUsername);
 

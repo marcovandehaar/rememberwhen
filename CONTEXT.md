@@ -41,5 +41,5 @@ The list of place names and their coordinates that a Destination name is resolve
 _Avoid_: Geocoder, Lookup table, Places database
 
 **Curation**:
-The operator's standing decisions about one Source Folder, kept beside it so they outlive the published catalogue and any re-run of the Indexer. Holds how each reported anomaly was dealt with, and in time the confirmed Chapter boundaries and Destination name.
+The operator's standing decisions about one Source Folder, kept in the Curation-folder — a location the operator controls independently of the Source Folder's own (often read-only) permissions — so they outlive the published catalogue and any re-run of the Indexer. Holds how each reported anomaly was dealt with, and in time the confirmed Chapter boundaries and Destination name.
 _Avoid_: Sidecar, Overrides, Metadata, Corrections

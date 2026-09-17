@@ -26,6 +26,14 @@ public sealed class IndexerConfig
     public string GazetteerPath { get; set; } = "gazetteer.json";
     public string OutputFolder { get; set; } = "output";
 
+    // Curation records and run logs (see CurationFile.cs's header) — kept
+    // apart from OutputFolder so they never end up published alongside the
+    // catalogue and media derivatives that folder holds. Named
+    // "curation-logs", not "curation": Windows path lookups are
+    // case-insensitive, so a bare "curation" would resolve to the existing
+    // indexer/Curation/ source folder and write runtime files into it.
+    public string CurationFolder { get; set; } = "curation-logs";
+
     // Empty means "not configured yet" — the folder picker falls back to
     // listing drives. Set once (e.g. to a NAS share all Source Folders live
     // under) and the picker starts there instead, never wandering above it.

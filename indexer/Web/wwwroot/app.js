@@ -482,6 +482,9 @@ function renderSettings(settings) {
   document.getElementById('output-folder').value = settings.outputFolder;
   document.getElementById('output-folder-resolved').textContent = `Wordt: ${settings.outputFolderResolved}`;
 
+  document.getElementById('curation-folder').value = settings.curationFolder;
+  document.getElementById('curation-folder-resolved').textContent = `Wordt: ${settings.curationFolderResolved}`;
+
   document.getElementById('source-folders-root').value = settings.sourceFoldersRoot;
   document.getElementById('source-folders-root-resolved').textContent =
     settings.sourceFoldersRootResolved ? `Wordt: ${settings.sourceFoldersRootResolved}` : 'Niet ingesteld — "Bladeren…" toont de schijven.';
@@ -599,6 +602,18 @@ document.getElementById('save-output-folder-button').addEventListener('click', a
     const settings = await api('PUT', '/api/settings/output-folder', { path: document.getElementById('output-folder').value });
     renderSettings(settings);
     await loadFolders();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+});
+
+document.getElementById('save-curation-folder-button').addEventListener('click', async () => {
+  const errorEl = document.getElementById('curation-folder-error');
+  errorEl.hidden = true;
+  try {
+    const settings = await api('PUT', '/api/settings/curation-folder', { path: document.getElementById('curation-folder').value });
+    renderSettings(settings);
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;

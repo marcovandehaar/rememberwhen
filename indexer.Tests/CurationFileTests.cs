@@ -42,13 +42,13 @@ public class CurationFileTests : IDisposable
     }
 
     [Fact]
-    public void The_sidecar_path_sits_next_to_the_source_folder_not_inside_it()
+    public void The_curation_path_sits_in_the_curation_folder_keyed_by_memory_id()
     {
-        var sourceFolder = Path.Combine(_root, "Schotland 2010");
+        var curationFolder = Path.Combine(_root, "curation");
 
-        var sidecarPath = CurationFile.SidecarPathFor(sourceFolder);
+        var path = CurationFile.PathFor(curationFolder, "schotland-2010");
 
-        Assert.Equal(_root, Path.GetDirectoryName(sidecarPath));
-        Assert.Equal("Schotland 2010.curation.json", Path.GetFileName(sidecarPath));
+        Assert.Equal(curationFolder, Path.GetDirectoryName(path));
+        Assert.Equal("schotland-2010.curation.json", Path.GetFileName(path));
     }
 }

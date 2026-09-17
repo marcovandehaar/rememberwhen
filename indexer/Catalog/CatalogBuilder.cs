@@ -20,10 +20,20 @@ public static class CatalogBuilder
         string destinationName,
         Gazetteer gazetteer,
         string outputFolder,
+        string curationFolder,
         TextWriter? log = null,
         Action<int, int>? onProgress = null)
     {
+        var memoryId = Slug.From(memoryName);
         log ??= Console.Out;
+
+        // Persists every line written to `log` for later inspection, in
+        // addition to wherever the caller's own writer already sends it
+        // (console, or the web UI's live run view) — see CurationFile.cs's
+        // header for why this folder exists instead of writing next to the
+        // Source Folder.
+        using var logFileWriter = TryOpenLogFile(curationFolder, memoryId, log);
+        if (logFileWriter is not null) log = new TeeTextWriter(log, logFileWriter);
 
         // Cheap and fast, so it goes first: an unseeded Destination fails here
         // instead of after the slow read-and-publish pass over every file,
@@ -69,18 +79,17 @@ public static class CatalogBuilder
             foreach (var anomaly in detection.Anomalies)
                 curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());
 
-            // The sidecar is a record for the operator, not something the
-            // catalogue depends on — a NAS share that's read-only at this
-            // level (common for an archived year/month) must not sink a
-            // run whose anomalies are otherwise handled automatically and
-            // non-blockingly (see the file header above).
+            // Not something the catalogue depends on — an unwritable
+            // Curation-folder must not sink a run whose anomalies are
+            // otherwise handled automatically and non-blockingly (see the
+            // file header above).
             try
             {
-                curation.Save(CurationFile.SidecarPathFor(sourceFolder));
+                curation.Save(CurationFile.PathFor(curationFolder, memoryId));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                log.WriteLine($"Kon curatiebestand niet wegschrijven naast {sourceFolder}: {ex.Message}");
+                log.WriteLine($"Kon curatiebestand niet wegschrijven naar {curationFolder}: {ex.Message}");
             }
         }
 
@@ -89,7 +98,6 @@ public static class CatalogBuilder
             .OrderBy(entry => entry.EffectiveCapturedAt)
             .ToList();
 
-        var memoryId = Slug.From(memoryName);
         var mediaDir = Path.Combine(outputFolder, "media");
         Directory.CreateDirectory(mediaDir);
 
@@ -189,4 +197,39 @@ public static class CatalogBuilder
         File.Copy(file.FullPath, Path.Combine(mediaDir, fileName), overwrite: true);
         return ($"media/{fileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration);
     }
+
+    // Best-effort: an unwritable Curation-folder is the exact scenario the
+    // curation-file save below already guards the run against, so opening
+    // its log file must not itself sink the run.
+    private static StreamWriter? TryOpenLogFile(string curationFolder, string memoryId, TextWriter log)
+    {
+        try
+        {
+            Directory.CreateDirectory(curationFolder);
+            return new StreamWriter(Path.Combine(curationFolder, $"{memoryId}.log"), append: false) { AutoFlush = true };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.WriteLine($"Kon logbestand niet wegschrijven naar {curationFolder}: {ex.Message}");
+            return null;
+        }
+    }
+}
+
+// Mirrors every WriteLine onto a second writer, so a run's log reaches both
+// its caller (console, or the web UI's live RunLogWriter) and a persisted
+// file in the Curation-folder — without every call site having to know
+// about the file.
+public sealed class TeeTextWriter(TextWriter primary, TextWriter secondary) : TextWriter
+{
+    public override System.Text.Encoding Encoding => primary.Encoding;
+
+    public override void WriteLine(string? value)
+    {
+        primary.WriteLine(value);
+        secondary.WriteLine(value);
+    }
+
+    public override void Write(char value) =>
+        throw new NotSupportedException($"{nameof(TeeTextWriter)} only supports WriteLine(string).");
 }

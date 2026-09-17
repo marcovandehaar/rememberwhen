@@ -14,17 +14,19 @@ Starts a local web server (default `http://localhost:5183`) and opens it in your
 - **Reindex an existing folder.** One click, reusing the Memory/Destination name from the first run — no retyping.
 - **Remove an indexed folder.** Drops it from the list and deletes its published photos.
 
-The Gazetteer, output location, and a Source Folders-basismap live behind the settings sheet (gear icon), since they're setup, not part of the daily flow. Setting the basismap to a folder all trips live under — a mounted NAS share, say — points "Bladeren…" there directly instead of the drive list, and it can't wander above it. The Indexer only ever sees the filesystem of the machine it's running on, so this only works when that folder is actually reachable from there (a mapped network drive or UNC path with Windows already holding the credentials — nothing this app manages itself).
+The Gazetteer, output location, Curatie- en logs-locatie, and a Source Folders-basismap live behind the settings sheet (gear icon), since they're setup, not part of the daily flow. Setting the basismap to a folder all trips live under — a mounted NAS share, say — points "Bladeren…" there directly instead of the drive list, and it can't wander above it. The Indexer only ever sees the filesystem of the machine it's running on, so this only works when that folder is actually reachable from there (a mapped network drive or UNC path with Windows already holding the credentials — nothing this app manages itself).
+
+Anomaly-meldingen (`{memory-id}.curation.json`) and run-logs (`{memory-id}.log`) are written to the Curatie- en logs-locatie, never to the Source Folder — a photo archive is often read-only at the folder level, and the Indexer only ever needs read access there.
 
 All of this is backed by one configuration file, `indexer/config.json` by default — machine-specific (Source Folder paths), so it's gitignored and starts out empty; the UI creates and updates it. An invalid setting (a Source Folder path that no longer exists, a missing Gazetteer file, …) is always reported in the UI, never silently applied.
 
 ## CLI (still available, for scripting)
 
 ```sh
-dotnet run --project indexer -- <source-folder> <memory-naam> <destination-naam> <output-folder> [gazetteer.json]
+dotnet run --project indexer -- <source-folder> <memory-naam> <destination-naam> <output-folder> [gazetteer.json] [curation-folder]
 ```
 
-`gazetteer.json` defaults to `indexer/gazetteer.json`. Add the destination by hand before indexing:
+`gazetteer.json` defaults to `indexer/gazetteer.json`, `curation-folder` to `indexer/curation-logs`. Add the destination by hand before indexing:
 
 ```json
 { "Zeeland": { "lat": 51.5, "lon": 3.8 } }

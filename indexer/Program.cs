@@ -20,7 +20,7 @@ if (args.Length == 0)
 if (args.Length < 4)
 {
     Console.Error.WriteLine(
-        "Gebruik: Indexer <source-folder> <memory-naam> <destination-naam> <output-folder> [gazetteer.json]");
+        "Gebruik: Indexer <source-folder> <memory-naam> <destination-naam> <output-folder> [gazetteer.json] [curation-folder]");
     Console.Error.WriteLine("Of: Indexer (zonder argumenten) start de instellingen-UI.");
     return 1;
 }
@@ -30,11 +30,12 @@ var memoryName = args[1];
 var destinationName = args[2];
 var outputFolder = args[3];
 var gazetteerPath = args.Length > 4 ? args[4] : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "gazetteer.json");
+var curationFolder = args.Length > 5 ? args[5] : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "curation-logs");
 
 try
 {
     var gazetteer = Gazetteer.Load(gazetteerPath);
-    var catalog = CatalogBuilder.Build(sourceFolder, memoryName, destinationName, gazetteer, outputFolder);
+    var catalog = CatalogBuilder.Build(sourceFolder, memoryName, destinationName, gazetteer, outputFolder, curationFolder);
 
     Directory.CreateDirectory(outputFolder);
     var catalogPath = Path.Combine(outputFolder, "catalog.json");
