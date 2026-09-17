@@ -11,7 +11,7 @@ const CATALOG_URL = '/catalog.json'
 function App() {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [selected, setSelected] = useState<Memory | null>(null)
-  const [openItem, setOpenItem] = useState<MediaItem | null>(null)
+  const [openItem, setOpenItem] = useState<{ item: MediaItem; startAt?: number } | null>(null)
 
   useEffect(() => {
     fetch(CATALOG_URL)
@@ -29,8 +29,10 @@ function App() {
   return (
     <>
       {!selected && <Globe memories={catalog.memories} onSelect={setSelected} />}
-      {selected && <Story memory={selected} onOpenItem={setOpenItem} onBack={backToGlobe} />}
-      {openItem && <Lightbox item={openItem} onClose={() => setOpenItem(null)} />}
+      {selected && (
+        <Story memory={selected} onOpenItem={(item, startAt) => setOpenItem({ item, startAt })} onBack={backToGlobe} />
+      )}
+      {openItem && <Lightbox item={openItem.item} startAt={openItem.startAt} onClose={() => setOpenItem(null)} />}
     </>
   )
 }

@@ -19,7 +19,10 @@ export function Story({
   onBack,
 }: {
   memory: Memory
-  onOpenItem: (item: Beat['item']) => void
+  // startAt: the inline video's own currentTime, so the Lightbox picks up
+  // exactly where the muted preview left off — the spec's "tapping doesn't
+  // start playback, it's already playing" (#35) means no visible restart.
+  onOpenItem: (item: Beat['item'], startAt?: number) => void
   onBack: () => void
 }) {
   const list = useMemo(() => beats(memory), [memory])
@@ -151,7 +154,10 @@ export function Story({
                 if (el) shotRefs.current.set(b.i, el)
                 else shotRefs.current.delete(b.i)
               }}
-              onClick={() => b.i === index && onOpenItem(b.item)}
+              onClick={() => {
+                if (b.i !== index) return
+                onOpenItem(b.item, videoRefs.current.get(b.item.id)?.currentTime)
+              }}
               style={{
                 position: 'absolute',
                 inset: 0,

@@ -17,7 +17,7 @@ function videoMimeType(mediaRef: string): string {
   return ext === 'mov' ? 'video/quicktime' : 'video/mp4'
 }
 
-export function Lightbox({ item, onClose }: { item: MediaItem; onClose: () => void }) {
+export function Lightbox({ item, startAt, onClose }: { item: MediaItem; startAt?: number; onClose: () => void }) {
   // The library already defers calling `onClose` until its own fade-out
   // finishes (see its Portal: `setVisible(false)` → wait `animation.fade` →
   // `close()`), so this component stays mounted for the whole exit
@@ -54,7 +54,25 @@ export function Lightbox({ item, onClose }: { item: MediaItem; onClose: () => vo
         // all — React batches both styles into one frame, so there's
         // nothing for the CSS transition to animate from. Two rAFs guarantee
         // a real paint of scale(.96) happens first.
-        entering: () => requestAnimationFrame(() => requestAnimationFrame(() => setSettled(true))),
+        entering: () => {
+          requestAnimationFrame(() => requestAnimationFrame(() => setSettled(true)))
+          // #35: the Story's muted preview is already mid-playback when
+          // tapped — seek the Lightbox's own <video> to match, so sound
+          // "continues" instead of visibly restarting from the beginning.
+          // There's only ever one slide, so no need to pick "the current" one.
+          if (startAt) {
+            // The slide's own <video> isn't in the DOM yet on the tick
+            // `entering` fires (the library mounts it a beat later) — poll
+            // a few animation frames rather than querying immediately.
+            let tries = 0
+            const trySeek = () => {
+              const video = document.querySelector<HTMLVideoElement>('.yarl__slide video')
+              if (video) video.currentTime = startAt
+              else if (tries++ < 10) requestAnimationFrame(trySeek)
+            }
+            requestAnimationFrame(trySeek)
+          }
+        },
         exiting: () => setSettled(false),
       }}
       styles={{
