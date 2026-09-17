@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import GlobeGL from 'react-globe.gl'
 import type { Memory } from '../catalog/types'
+import { PinChooser } from './PinChooser'
+import { pinsFor, type Pin } from './pins'
 
 // Variant A (#7): photographic night earth, glowing cover-photo pin, no
 // bloom — it cost two thirds of the framerate on the 2019 iPad and washed
@@ -13,8 +15,6 @@ const TEX = {
   topology: '//unpkg.com/three-globe/example/img/earth-topology.png',
 }
 
-type Pin = { destinationName: string; lat: number; lng: number; cover: string }
-
 type GlobeInstance = {
   pointOfView: {
     (): { lat: number; lng: number; altitude: number }
@@ -23,27 +23,13 @@ type GlobeInstance = {
   controls: () => { autoRotate: boolean; autoRotateSpeed: number; enableDamping: boolean; minDistance: number; maxDistance: number }
 }
 
-// Pins are keyed on destinationName, not on the Memory: two Memories sharing
-// a Destination collapse onto one pin (#11). Picking which Memory's cover
-// wins for a shared pin, and the tap-to-choose list, is #32's job — this
-// ticket only needs the key to already be right so that grouping is cheap
-// to add later.
-function pinsFor(memories: Memory[]): Pin[] {
-  const byDestination = new Map<string, Memory>()
-  for (const memory of memories) {
-    if (!byDestination.has(memory.destinationName)) byDestination.set(memory.destinationName, memory)
-  }
-  return [...byDestination.values()].map((m) => ({
-    destinationName: m.destinationName,
-    lat: m.destinationCoordinate.lat,
-    lng: m.destinationCoordinate.lon,
-    cover: m.coverImage,
-  }))
-}
-
 export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (memory: Memory) => void }) {
   const ref = useRef<GlobeInstance | null>(null)
   const pins = pinsFor(memories)
+  // Set once the fly-in lands on a pin with more than one Memory — #11/#32:
+  // tapping a shared pin zooms first, then offers a chooser, rather than
+  // picking a Memory for the operator.
+  const [chooserPin, setChooserPin] = useState<Pin | null>(null)
 
   useEffect(() => {
     const g = ref.current
@@ -56,39 +42,52 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
   }, [])
 
   return (
-    <GlobeGL
-      ref={ref as never}
-      onGlobeReady={() => ref.current?.pointOfView(HOME, 0)}
-      globeImageUrl={TEX.night}
-      bumpImageUrl={TEX.topology}
-      backgroundColor="#04070f"
-      showAtmosphere={false}
-      htmlElementsData={pins}
-      htmlLat={(d: object) => (d as Pin).lat}
-      htmlLng={(d: object) => (d as Pin).lng}
-      htmlAltitude={0.05}
-      htmlElement={(raw: object) => {
-        const pin = raw as Pin
-        const el = document.createElement('div')
-        el.style.cssText = 'cursor: pointer; pointer-events: auto;'
-        el.innerHTML = `
-          <div style="width:46px;height:46px;border-radius:50%;overflow:hidden;
-                      border:2px solid rgba(255,255,255,.9);
-                      box-shadow:0 0 16px rgba(120,180,255,.55), 0 4px 12px rgba(0,0,0,.6);">
-            <img src="${pin.cover}" style="width:100%;height:100%;object-fit:cover;display:block" />
-          </div>
-          <div style="margin-top:5px;text-align:center;color:#fff;font:600 10px/1.2 -apple-system,system-ui,sans-serif;
-                      text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap">${pin.destinationName}</div>`
-        el.onclick = () => {
-          const memory = memories.find((m) => m.destinationName === pin.destinationName)
-          const g = ref.current
-          if (memory && g) {
-            g.pointOfView({ lat: memory.destinationCoordinate.lat, lng: memory.destinationCoordinate.lon, altitude: ZOOM_ALTITUDE }, 1200)
-            window.setTimeout(() => onSelect(memory), 1200)
+    <>
+      <GlobeGL
+        ref={ref as never}
+        onGlobeReady={() => ref.current?.pointOfView(HOME, 0)}
+        globeImageUrl={TEX.night}
+        bumpImageUrl={TEX.topology}
+        backgroundColor="#04070f"
+        showAtmosphere={false}
+        htmlElementsData={pins}
+        htmlLat={(d: object) => (d as Pin).lat}
+        htmlLng={(d: object) => (d as Pin).lng}
+        htmlAltitude={0.05}
+        htmlElement={(raw: object) => {
+          const pin = raw as Pin
+          const el = document.createElement('div')
+          el.style.cssText = 'cursor: pointer; pointer-events: auto;'
+          el.innerHTML = `
+            <div style="width:46px;height:46px;border-radius:50%;overflow:hidden;
+                        border:2px solid rgba(255,255,255,.9);
+                        box-shadow:0 0 16px rgba(120,180,255,.55), 0 4px 12px rgba(0,0,0,.6);">
+              <img src="${pin.cover}" style="width:100%;height:100%;object-fit:cover;display:block" />
+            </div>
+            <div style="margin-top:5px;text-align:center;color:#fff;font:600 10px/1.2 -apple-system,system-ui,sans-serif;
+                        text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap">${pin.destinationName}</div>`
+          el.onclick = () => {
+            const g = ref.current
+            if (!g) return
+            g.pointOfView({ lat: pin.lat, lng: pin.lng, altitude: ZOOM_ALTITUDE }, 1200)
+            window.setTimeout(() => {
+              if (pin.memories.length === 1) onSelect(pin.memories[0])
+              else setChooserPin(pin)
+            }, 1200)
           }
-        }
-        return el
-      }}
-    />
+          return el
+        }}
+      />
+      {chooserPin && (
+        <PinChooser
+          pin={chooserPin}
+          onChoose={(memory) => {
+            setChooserPin(null)
+            onSelect(memory)
+          }}
+          onDismiss={() => setChooserPin(null)}
+        />
+      )}
+    </>
   )
 }
