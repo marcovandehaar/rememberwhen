@@ -14,7 +14,10 @@ function App() {
   const [openItem, setOpenItem] = useState<{ item: MediaItem; startAt?: number } | null>(null)
 
   useEffect(() => {
-    fetch(CATALOG_URL)
+    // Every real Indexer run replaces this file in place (#30) — without
+    // this, a browser that already cached one response has no reason to
+    // ever ask again, so a newly published Memory silently never appears.
+    fetch(CATALOG_URL, { cache: 'no-store' })
       .then((r) => r.json())
       .then(setCatalog)
   }, [])
