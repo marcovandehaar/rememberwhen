@@ -68,7 +68,20 @@ public static class CatalogBuilder
             var curation = CurationFile.CreateEmpty();
             foreach (var anomaly in detection.Anomalies)
                 curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());
-            curation.Save(CurationFile.SidecarPathFor(sourceFolder));
+
+            // The sidecar is a record for the operator, not something the
+            // catalogue depends on — a NAS share that's read-only at this
+            // level (common for an archived year/month) must not sink a
+            // run whose anomalies are otherwise handled automatically and
+            // non-blockingly (see the file header above).
+            try
+            {
+                curation.Save(CurationFile.SidecarPathFor(sourceFolder));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                log.WriteLine($"Kon curatiebestand niet wegschrijven naast {sourceFolder}: {ex.Message}");
+            }
         }
 
         var ordered = read

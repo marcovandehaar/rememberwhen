@@ -262,4 +262,32 @@ public class CatalogBuilderTests : IDisposable
         Assert.Throws<KeyNotFoundException>(() =>
             CatalogBuilder.Build(missingSourceDir, "Onbekend 2030", "Onbekend", gazetteer, _outputDir, TextWriter.Null));
     }
+
+    [Fact]
+    public void An_unwritable_curation_sidecar_warns_but_does_not_block_the_rest_of_the_run()
+    {
+        // Real-world case: the Source Folder sits on a share where the
+        // operator can read but not write next to it (e.g. an archived
+        // year/month on a NAS). The sidecar is a record for the operator,
+        // not something the catalogue depends on — losing it must not
+        // sink the whole run (matches the anomalies themselves already
+        // being non-blocking, see #19/#33).
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony1.jpg"), 800, 600, new DateTime(2010, 8, 1, 9, 0, 0), camera: "SONY DSC-W70");
+        var nikon1 = Path.Combine(_sourceDir, "nikon1.jpg");
+        TestImages.WriteJpeg(nikon1, 800, 600, new DateTime(2010, 1, 2, 9, 0, 0), camera: "NIKON D50");
+        File.SetLastWriteTimeUtc(nikon1, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
+
+        // A directory sitting at the sidecar's path makes File.WriteAllText
+        // fail with UnauthorizedAccessException, standing in for a
+        // permission-denied NAS write without needing real ACLs.
+        Directory.CreateDirectory(CurationFile.SidecarPathFor(_sourceDir));
+
+        var log = new StringWriter();
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, log);
+
+        var items = catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
+        Assert.Equal(2, items.Count);
+        Assert.Contains("curation", log.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
 }
