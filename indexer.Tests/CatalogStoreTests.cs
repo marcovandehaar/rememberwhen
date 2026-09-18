@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Indexer.Catalog;
 
 namespace Indexer.Tests;
@@ -31,6 +32,44 @@ public class CatalogStoreTests : IDisposable
 
         Assert.Single(reloaded.Memories);
         Assert.Equal("a", reloaded.Memories[0].Id);
+    }
+
+    // #44: UiServer.cs's handlers each wrap their whole Load-mutate-Save
+    // sequence in `lock (CatalogStore.Gate)`. Without that (or without Load/
+    // Save taking the same lock internally), threads racing this hard
+    // reproduced a real Windows IOException ("used by another process") —
+    // this proves the fix holds under genuine concurrent access, not just
+    // sequential calls.
+    [Fact]
+    public void Concurrent_load_modify_save_transactions_dont_crash_or_lose_updates()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "catalog.json");
+        CatalogStore.Save(new RwCatalog(), path);
+
+        var exceptions = new ConcurrentBag<Exception>();
+        var threads = Enumerable.Range(0, 20).Select(i => new Thread(() =>
+        {
+            try
+            {
+                lock (CatalogStore.Gate)
+                {
+                    var catalog = CatalogStore.Load(path);
+                    CatalogStore.Save(CatalogStore.Replace(catalog, Memory($"m{i}")), path);
+                }
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(ex);
+            }
+        })).ToList();
+
+        foreach (var t in threads) t.Start();
+        foreach (var t in threads) t.Join();
+
+        Assert.Empty(exceptions);
+        var final = CatalogStore.Load(path);
+        Assert.Equal(20, final.Memories.Count);
     }
 
     [Fact]

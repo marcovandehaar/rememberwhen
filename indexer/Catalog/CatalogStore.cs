@@ -11,14 +11,34 @@ namespace Indexer.Catalog;
 // overwritten by whichever folder was indexed last.
 public static class CatalogStore
 {
-    public static RwCatalog Load(string catalogPath) =>
-        File.Exists(catalogPath)
-            ? JsonSerializer.Deserialize<RwCatalog>(File.ReadAllText(catalogPath), JsonOptions.Default)
-              ?? throw new InvalidDataException($"Catalogus op {catalogPath} kon niet gelezen worden.")
-            : new RwCatalog();
+    // #44: nothing here used to synchronize access to catalog.json, so two
+    // overlapping requests (an index run's own Load+Save racing a photo
+    // removal, say) could both try to open the file at the same instant and
+    // one would get IOException("used by another process") from Windows'
+    // share-mode check. UiServer.cs's handlers also hold this for their
+    // whole Load-mutate-Save sequence, not just the individual calls here —
+    // Monitor locks are reentrant per thread, so that nests safely with the
+    // locking Load/Save already do on their own.
+    public static readonly object Gate = new();
 
-    public static void Save(RwCatalog catalog, string catalogPath) =>
-        File.WriteAllText(catalogPath, JsonSerializer.Serialize(catalog, JsonOptions.Default));
+    public static RwCatalog Load(string catalogPath)
+    {
+        lock (Gate)
+        {
+            return File.Exists(catalogPath)
+                ? JsonSerializer.Deserialize<RwCatalog>(File.ReadAllText(catalogPath), JsonOptions.Default)
+                  ?? throw new InvalidDataException($"Catalogus op {catalogPath} kon niet gelezen worden.")
+                : new RwCatalog();
+        }
+    }
+
+    public static void Save(RwCatalog catalog, string catalogPath)
+    {
+        lock (Gate)
+        {
+            File.WriteAllText(catalogPath, JsonSerializer.Serialize(catalog, JsonOptions.Default));
+        }
+    }
 
     public static RwCatalog Replace(RwCatalog catalog, RwMemory memory) => new()
     {

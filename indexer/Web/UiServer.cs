@@ -104,22 +104,28 @@ public static class UiServer
         app.MapDelete("/api/folders", (string path) =>
         {
             var config = IndexerConfig.Load(configPath);
-            var indexed = config.FindIndexed(path);
-            if (indexed is not null)
+            // #44: Load, mutate and Save must happen as one uninterrupted
+            // transaction, or another request's own Load/Save could land in
+            // between and either race on the file handle or get overwritten.
+            lock (CatalogStore.Gate)
             {
-                var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
-                var catalogPath = Path.Combine(outputFolder, "catalog.json");
-                var catalog = CatalogStore.Load(catalogPath);
-                var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
+                var indexed = config.FindIndexed(path);
+                if (indexed is not null)
+                {
+                    var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+                    var catalogPath = Path.Combine(outputFolder, "catalog.json");
+                    var catalog = CatalogStore.Load(catalogPath);
+                    var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
 
-                CatalogStore.Save(CatalogStore.RemoveMemory(catalog, indexed.MemoryId), catalogPath);
-                if (memory is not null)
-                    CatalogStore.DeleteMediaFilesForMemory(Path.Combine(outputFolder, "media"), memory);
+                    CatalogStore.Save(CatalogStore.RemoveMemory(catalog, indexed.MemoryId), catalogPath);
+                    if (memory is not null)
+                        CatalogStore.DeleteMediaFilesForMemory(Path.Combine(outputFolder, "media"), memory);
+                }
+
+                config.RemoveSourceFolder(path);
+                config.Save(configPath);
+                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
             }
-
-            config.RemoveSourceFolder(path);
-            config.Save(configPath);
-            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
         });
 
         app.MapPost("/api/folders/index", (IndexFolderRequest body) =>
@@ -168,17 +174,24 @@ public static class UiServer
                     onProgress: state.SetProgress, cancellationToken: state.CancellationToken);
                 var newMemory = built.Memories[0];
 
-                var existingCatalog = CatalogStore.Load(catalogPath);
-                if (existing is not null && existing.MemoryId != newMemory.Id)
+                // #44: same reasoning as the other handlers — Load through
+                // Save is one transaction, so a request reviewing/removing
+                // photos from an already-published Memory while this run is
+                // still writing can't race it.
+                lock (CatalogStore.Gate)
                 {
-                    var oldMemory = existingCatalog.Memories.FirstOrDefault(m => m.Id == existing.MemoryId);
-                    existingCatalog = CatalogStore.RemoveMemory(existingCatalog, existing.MemoryId);
-                    if (oldMemory is not null) CatalogStore.DeleteMediaFilesForMemory(mediaDir, oldMemory);
-                }
-                CatalogStore.PruneStaleMediaFiles(mediaDir, newMemory);
+                    var existingCatalog = CatalogStore.Load(catalogPath);
+                    if (existing is not null && existing.MemoryId != newMemory.Id)
+                    {
+                        var oldMemory = existingCatalog.Memories.FirstOrDefault(m => m.Id == existing.MemoryId);
+                        existingCatalog = CatalogStore.RemoveMemory(existingCatalog, existing.MemoryId);
+                        if (oldMemory is not null) CatalogStore.DeleteMediaFilesForMemory(mediaDir, oldMemory);
+                    }
+                    CatalogStore.PruneStaleMediaFiles(mediaDir, newMemory);
 
-                var merged = CatalogStore.Replace(existingCatalog, newMemory);
-                CatalogStore.Save(merged, catalogPath);
+                    var merged = CatalogStore.Replace(existingCatalog, newMemory);
+                    CatalogStore.Save(merged, catalogPath);
+                }
 
                 var freshConfig = IndexerConfig.Load(configPath);
                 freshConfig.RecordIndexed(body.Path, newMemory.Id, memoryName, destinationName);
@@ -221,16 +234,20 @@ public static class UiServer
             var config = IndexerConfig.Load(configPath);
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
-            var catalog = CatalogStore.Load(catalogPath);
 
-            var result = CatalogStore.RemoveMediaItem(catalog, memoryId, itemId);
-            if (result.Error is not null)
-                return result.NotFound ? Results.NotFound(new ErrorResponse(result.Error)) : Results.BadRequest(new ErrorResponse(result.Error));
+            lock (CatalogStore.Gate) // #44
+            {
+                var catalog = CatalogStore.Load(catalogPath);
 
-            CatalogStore.Save(result.Catalog, catalogPath);
-            CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
+                var result = CatalogStore.RemoveMediaItem(catalog, memoryId, itemId);
+                if (result.Error is not null)
+                    return result.NotFound ? Results.NotFound(new ErrorResponse(result.Error)) : Results.BadRequest(new ErrorResponse(result.Error));
 
-            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                CatalogStore.Save(result.Catalog, catalogPath);
+                CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
+
+                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            }
         });
 
         app.MapPut("/api/media-items/cover", (SetCoverRequest body) =>
@@ -239,34 +256,38 @@ public static class UiServer
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
             var mediaDir = Path.Combine(outputFolder, "media");
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
-            var catalog = CatalogStore.Load(catalogPath);
 
-            var memory = catalog.Memories.FirstOrDefault(m => m.Id == body.MemoryId);
-            if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+            lock (CatalogStore.Gate) // #44
+            {
+                var catalog = CatalogStore.Load(catalogPath);
 
-            var item = memory.Chapters.SelectMany(c => c.MediaItems).FirstOrDefault(i => i.Id == body.ItemId);
-            if (item is null) return Results.NotFound(new ErrorResponse("Onbekend Media Item."));
+                var memory = catalog.Memories.FirstOrDefault(m => m.Id == body.MemoryId);
+                if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
 
-            if (CatalogStore.IsCover(memory, item.Id))
+                var item = memory.Chapters.SelectMany(c => c.MediaItems).FirstOrDefault(i => i.Id == body.ItemId);
+                if (item is null) return Results.NotFound(new ErrorResponse("Onbekend Media Item."));
+
+                if (CatalogStore.IsCover(memory, item.Id))
+                    return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                if (item.Type == MediaKind.Video)
+                    return Results.BadRequest(new ErrorResponse("Een video kan geen cover zijn."));
+
+                // From the item's own already-published derivative, same as the
+                // rest of this review screen — never the original source file.
+                var thumbFileName = $"{item.Id}-thumb.jpg";
+                DerivativeGenerator.GeneratePinThumbnail(
+                    Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
+
+                var oldCoverPath = Path.Combine(outputFolder, memory.CoverImage);
+                var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}");
+                CatalogStore.Save(updated, catalogPath);
+
+                // Only after the replacement is confirmed on disk — same
+                // build-before-delete ordering as everywhere else here.
+                if (File.Exists(oldCoverPath)) File.Delete(oldCoverPath);
+
                 return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
-            if (item.Type == MediaKind.Video)
-                return Results.BadRequest(new ErrorResponse("Een video kan geen cover zijn."));
-
-            // From the item's own already-published derivative, same as the
-            // rest of this review screen — never the original source file.
-            var thumbFileName = $"{item.Id}-thumb.jpg";
-            DerivativeGenerator.GeneratePinThumbnail(
-                Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
-
-            var oldCoverPath = Path.Combine(outputFolder, memory.CoverImage);
-            var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}");
-            CatalogStore.Save(updated, catalogPath);
-
-            // Only after the replacement is confirmed on disk — same
-            // build-before-delete ordering as everywhere else here.
-            if (File.Exists(oldCoverPath)) File.Delete(oldCoverPath);
-
-            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            }
         });
 
         app.MapGet("/api/gazetteer", () =>
