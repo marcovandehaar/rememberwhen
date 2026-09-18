@@ -70,10 +70,7 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
             const g = ref.current
             if (!g) return
             g.pointOfView({ lat: pin.lat, lng: pin.lng, altitude: ZOOM_ALTITUDE }, 1200)
-            window.setTimeout(() => {
-              if (pin.memories.length === 1) onSelect(pin.memories[0])
-              else setChooserPin(pin)
-            }, 1200)
+            window.setTimeout(() => setChooserPin(pin), 1200)
           }
           return el
         }}
@@ -81,11 +78,17 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
       {chooserPin && (
         <PinChooser
           pin={chooserPin}
+          pins={pins}
           onChoose={(memory) => {
             setChooserPin(null)
             onSelect(memory)
           }}
           onDismiss={() => setChooserPin(null)}
+          onNavigate={(pin) => {
+            const g = ref.current
+            if (g) g.pointOfView({ lat: pin.lat, lng: pin.lng, altitude: ZOOM_ALTITUDE }, 1200)
+            setChooserPin(pin)
+          }}
         />
       )}
     </>

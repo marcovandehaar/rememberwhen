@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Memory } from '../catalog/types'
-import { latestCapturedAt, type Pin } from './pins'
+import { latestCapturedAt, nearestPin, type Pin } from './pins'
 
 // #11/#32: a thumb-friendly bottom sheet, not a menu anchored to the pin's
 // screen position — the pin itself is mid-flight (the camera is still
@@ -22,9 +22,24 @@ function yearOf(memory: Memory): string | null {
   return Number.isFinite(t) ? String(new Date(t).getFullYear()) : null
 }
 
-export function PinChooser({ pin, onChoose, onDismiss }: { pin: Pin; onChoose: (memory: Memory) => void; onDismiss: () => void }) {
+export function PinChooser({
+  pin,
+  pins,
+  onChoose,
+  onDismiss,
+  onNavigate,
+}: {
+  pin: Pin
+  /** Every pin on the globe, so the west/east arrows can find the next-nearest one (#43). */
+  pins: Pin[]
+  onChoose: (memory: Memory) => void
+  onDismiss: () => void
+  onNavigate: (pin: Pin) => void
+}) {
   const byNewestFirst = [...pin.memories].sort((a, b) => latestCapturedAt(b) - latestCapturedAt(a))
   const newest = byNewestFirst[0]
+  const west = nearestPin(pins, pin, 'west')
+  const east = nearestPin(pins, pin, 'east')
 
   // Three phases, not a boolean: 'entering' → 'open' plays the pop-in (same
   // double-rAF trick as Lightbox.tsx's `settled`, so the closed style really
@@ -93,11 +108,25 @@ export function PinChooser({ pin, onChoose, onDismiss }: { pin: Pin; onChoose: (
 
         <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.25)', margin: '10px auto 2px' }} />
 
-        <div style={{ padding: '10px 16px 14px', textAlign: 'center', position: 'relative' }}>
-          <div style={{ color: '#fff', font: '600 19px/1.25 -apple-system,system-ui,sans-serif' }}>{pin.destinationName}</div>
-          <div style={{ color: 'rgba(255,255,255,.5)', font: '500 12.5px/1.4 -apple-system,system-ui,sans-serif', marginTop: 2 }}>
-            {pin.memories.length} memories op dit punt
+        <div style={{ padding: '10px 16px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <NavArrow direction="west" target={west} onNavigate={onNavigate} />
+          <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+            <div
+              style={{
+                color: '#fff',
+                font: '600 19px/1.25 -apple-system,system-ui,sans-serif',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {pin.destinationName}
+            </div>
+            <div style={{ color: 'rgba(255,255,255,.5)', font: '500 12.5px/1.4 -apple-system,system-ui,sans-serif', marginTop: 2 }}>
+              {pin.memories.length} {pin.memories.length === 1 ? 'memory' : 'memories'} op dit punt
+            </div>
           </div>
+          <NavArrow direction="east" target={east} onNavigate={onNavigate} />
         </div>
 
         {byNewestFirst.map((memory) => {
@@ -154,5 +183,44 @@ export function PinChooser({ pin, onChoose, onDismiss }: { pin: Pin; onChoose: (
         })}
       </div>
     </div>
+  )
+}
+
+// Disabled (no candidate in that direction — the westmost/eastmost pin) rather
+// than hidden, so the control's position stays stable while flipping through
+// nearby pins — no wraparound in v1 (#43).
+function NavArrow({ direction, target, onNavigate }: { direction: 'west' | 'east'; target: Pin | null; onNavigate: (pin: Pin) => void }) {
+  const [pressed, setPressed] = useState(false)
+  const disabled = target === null
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => target && onNavigate(target)}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerLeave={() => setPressed(false)}
+      aria-label={direction === 'west' ? 'Vorige pin naar het westen' : 'Volgende pin naar het oosten'}
+      style={{
+        flexShrink: 0,
+        width: 34,
+        height: 34,
+        borderRadius: '50%',
+        border: 'none',
+        background: 'rgba(255,255,255,.08)',
+        color: disabled ? 'rgba(255,255,255,.2)' : '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: disabled ? 'default' : 'pointer',
+        transform: `scale(${pressed && !disabled ? 0.92 : 1})`,
+        transition: 'transform .12s ease-out',
+      }}
+    >
+      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {direction === 'west' ? <polyline points="15 18 9 12 15 6" /> : <polyline points="9 18 15 12 9 6" />}
+      </svg>
+    </button>
   )
 }

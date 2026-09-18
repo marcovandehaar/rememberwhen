@@ -46,3 +46,23 @@ export function pinsFor(memories: Memory[]): Pin[] {
     }
   })
 }
+
+const EARTH_RADIUS_KM = 6371
+
+function greatCircleDistanceKm(a: Pin, b: Pin): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h))
+}
+
+// #43: the nearest *other* Destination in one direction from `from` —
+// filtered by longitude comparison first (v1 has no wraparound at the
+// antimeridian), then the closest of what's left by great-circle distance,
+// not screen position (PinChooser's arrows work the same in any camera angle).
+export function nearestPin(pins: Pin[], from: Pin, direction: 'west' | 'east'): Pin | null {
+  const candidates = pins.filter((p) => (direction === 'west' ? p.lng < from.lng : p.lng > from.lng))
+  if (candidates.length === 0) return null
+  return candidates.reduce((nearest, p) => (greatCircleDistanceKm(from, p) < greatCircleDistanceKm(from, nearest) ? p : nearest))
+}

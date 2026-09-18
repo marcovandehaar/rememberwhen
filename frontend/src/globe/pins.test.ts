@@ -1,6 +1,10 @@
 import { expect, test } from 'vitest'
-import { latestCapturedAt, pinsFor } from './pins'
+import { latestCapturedAt, nearestPin, pinsFor, type Pin } from './pins'
 import type { Memory } from '../catalog/types'
+
+function pin(destinationName: string, lat: number, lng: number): Pin {
+  return { destinationName, lat, lng, cover: `${destinationName}.jpg`, memories: [] }
+}
 
 function memory(overrides: Partial<Memory> & Pick<Memory, 'id' | 'destinationName' | 'coverImage'>): Memory {
   return {
@@ -77,4 +81,44 @@ test('latestCapturedAt ignores items without a capture time', () => {
 
 test('a Memory with no capture times at all reports -Infinity', () => {
   expect(latestCapturedAt(memory({ id: 'a', destinationName: 'Zeeland', coverImage: 'a.jpg' }))).toBe(-Infinity)
+})
+
+test('nearestPin finds the closest pin strictly west by longitude', () => {
+  const zillertal = pin('Zillertal', 47.1, 11.9)
+  const allgau = pin('Allgäu', 47.5, 10.3)
+  const oslo = pin('Oslo', 59.9, 10.7) // further west in lng, but not nearest by great-circle distance
+  const pins = [zillertal, allgau, oslo]
+
+  expect(nearestPin(pins, zillertal, 'west')?.destinationName).toBe('Allgäu')
+})
+
+test('nearestPin finds the closest pin strictly east by longitude', () => {
+  const allgau = pin('Allgäu', 47.5, 10.3)
+  const zillertal = pin('Zillertal', 47.1, 11.9)
+  const oslo = pin('Oslo', 59.9, 10.7)
+  const pins = [allgau, zillertal, oslo]
+
+  expect(nearestPin(pins, allgau, 'east')?.destinationName).toBe('Zillertal')
+})
+
+test('nearestPin returns null at the western edge — no wraparound', () => {
+  const allgau = pin('Allgäu', 47.5, 10.3)
+  const zillertal = pin('Zillertal', 47.1, 11.9)
+
+  expect(nearestPin([allgau, zillertal], allgau, 'west')).toBeNull()
+})
+
+test('nearestPin returns null at the eastern edge — no wraparound', () => {
+  const allgau = pin('Allgäu', 47.5, 10.3)
+  const zillertal = pin('Zillertal', 47.1, 11.9)
+
+  expect(nearestPin([allgau, zillertal], zillertal, 'east')).toBeNull()
+})
+
+test('nearestPin picks the closer of two candidates in the same direction', () => {
+  const current = pin('Current', 50, 0)
+  const near = pin('Near', 50, 1)
+  const far = pin('Far', 50, 10)
+
+  expect(nearestPin([current, near, far], current, 'east')?.destinationName).toBe('Near')
 })
