@@ -157,7 +157,11 @@ function renderSidebar() {
   empty.hidden = folders.length > 0;
 
   for (const folder of folders) {
-    const leaf = leafName(folder.path);
+    // A folder's own name is meaningless once it's indexed — several
+    // folders can share a Destination (#44) and their leaf names don't
+    // say so. The Memory name is what actually distinguishes them; the
+    // folder name is only ever shown as a fallback before that exists.
+    const title = folder.indexed ? folder.indexed.memoryName : leafName(folder.path);
     const item = el(`<li class="folder-item ${folder.path === selectedPath ? 'active' : ''}">
       <div class="folder-thumb ${folder.exists ? '' : 'missing'}"></div>
       <div class="folder-item-text">
@@ -166,7 +170,7 @@ function renderSidebar() {
       </div>
     </li>`);
 
-    item.querySelector('strong').textContent = leaf;
+    item.querySelector('strong').textContent = title;
     const thumb = item.querySelector('.folder-thumb');
     if (!folder.exists) {
       thumb.innerHTML = WARN_ICON;
