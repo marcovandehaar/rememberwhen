@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using Indexer.Catalog;
 using Indexer.Config;
 using Indexer.Media;
@@ -6,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Indexer.Web;
@@ -28,6 +30,16 @@ public static class UiServer
         });
         builder.WebHost.UseUrls(url);
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
+        // Nominatim's usage policy asks for an identifying User-Agent — a
+        // plain browser fetch can't set that header, so the "Suggest
+        // coordinate" button (#42) goes through this server-side client
+        // instead of calling Nominatim directly from app.js.
+        builder.Services.AddHttpClient<NominatimClient>(client =>
+        {
+            client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("rememberwhen-indexer/1.0 (+https://github.com/marcovandehaar/rememberwhen)");
+        });
 
         var app = builder.Build();
         var runs = new RunTracker();
@@ -264,6 +276,26 @@ public static class UiServer
             if (error is not null) return error;
 
             return Results.Json(new GazetteerView(gazetteer!.Entries), JsonOptions.Default);
+        });
+
+        app.MapGet("/api/gazetteer/suggest", async (string name, NominatimClient nominatim, CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return Results.BadRequest(new ErrorResponse("Destination-naam mag niet leeg zijn."));
+
+            NominatimSuggestion? suggestion;
+            try
+            {
+                suggestion = await nominatim.Search(name, cancellationToken);
+            }
+            catch (HttpRequestException ex)
+            {
+                return Results.Json(new ErrorResponse($"Nominatim niet bereikbaar: {ex.Message}"), JsonOptions.Default, statusCode: 502);
+            }
+
+            return suggestion is null
+                ? Results.NotFound(new ErrorResponse($"Geen resultaat gevonden voor '{name}'."))
+                : Results.Json(suggestion, JsonOptions.Default);
         });
 
         app.MapPut("/api/gazetteer/entries", (GazetteerEntryRequest body) =>

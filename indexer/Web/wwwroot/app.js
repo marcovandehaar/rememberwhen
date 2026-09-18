@@ -263,7 +263,14 @@ function renderUnindexedDetail(detail, folder) {
     ${!attempt?.error && attempt?.cancelled ? `<p class="hint" style="max-width:480px">Indexeren geannuleerd; niets gepubliceerd.</p>` : ''}
     ${folder.exists ? `
       <div class="field"><label for="memory-name">Memory-naam</label><input type="text" id="memory-name" placeholder="Zeeland 2016" value="${attempt?.memoryName ?? ''}" /></div>
-      <div class="field"><label for="destination-name">Destination-naam</label><input type="text" id="destination-name" list="destination-names" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" /></div>
+      <div class="field">
+        <label for="destination-name">Destination-naam</label>
+        <div class="row" style="margin:0">
+          <input type="text" id="destination-name" list="destination-names" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" />
+          <button type="button" class="button ghost small" id="suggest-coordinate-button">Coördinaat voorstellen</button>
+        </div>
+      </div>
+      <div id="gazetteer-suggestion"></div>
       <button type="button" class="button" id="index-button">Indexeer</button>
       <p class="error" id="index-error" hidden></p>
     ` : ''}
@@ -294,6 +301,67 @@ function renderUnindexedDetail(detail, folder) {
   }
 
   document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
+
+  const suggestButton = document.getElementById('suggest-coordinate-button');
+  if (suggestButton) {
+    suggestButton.addEventListener('click', () => suggestCoordinate(document.getElementById('destination-name').value.trim()));
+  }
+}
+
+// Only on click (never on keystroke) — no unsolicited network traffic to
+// Nominatim. Nothing lands in gazetteer.json until the operator explicitly
+// confirms the suggestion below (#42).
+async function suggestCoordinate(name) {
+  const box = document.getElementById('gazetteer-suggestion');
+  if (!name) {
+    box.innerHTML = `<p class="error">Vul eerst een Destination-naam in.</p>`;
+    return;
+  }
+
+  box.innerHTML = `<p class="hint">Zoeken via Nominatim…</p>`;
+  let suggestion;
+  try {
+    suggestion = await api('GET', `/api/gazetteer/suggest?name=${encodeURIComponent(name)}`);
+  } catch (err) {
+    box.innerHTML = `<p class="error"></p>`;
+    box.querySelector('.error').textContent = err.message;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="suggestion-card">
+      <p class="hint">${suggestion.displayName}</p>
+      <div class="row" style="margin:8px 0">
+        <input type="text" id="suggestion-name" value="${name}" />
+        <input type="number" id="suggestion-lat" value="${suggestion.lat}" step="any" min="-90" max="90" />
+        <input type="number" id="suggestion-lon" value="${suggestion.lon}" step="any" min="-180" max="180" />
+      </div>
+      <div class="row" style="margin:0">
+        <button type="button" class="button small" id="confirm-suggestion-button">Toevoegen aan Gazetteer</button>
+        <button type="button" class="button ghost small" id="dismiss-suggestion-button">Annuleren</button>
+      </div>
+      <p class="error" id="suggestion-error" hidden></p>
+      <p class="hint" style="margin-top:8px">Locatiegegevens via <a href="https://nominatim.openstreetmap.org" target="_blank" rel="noreferrer">OpenStreetMap Nominatim</a>.</p>
+    </div>
+  `;
+
+  box.querySelector('#dismiss-suggestion-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#confirm-suggestion-button').addEventListener('click', async () => {
+    const errorEl = box.querySelector('#suggestion-error');
+    errorEl.hidden = true;
+    try {
+      await api('PUT', '/api/gazetteer/entries', {
+        name: box.querySelector('#suggestion-name').value.trim(),
+        lat: parseFloat(box.querySelector('#suggestion-lat').value),
+        lon: parseFloat(box.querySelector('#suggestion-lon').value),
+      });
+      box.innerHTML = `<p class="hint">Toegevoegd aan de Gazetteer.</p>`;
+      fetchGazetteerEntries().then(refreshDestinationNames);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.hidden = false;
+    }
+  });
 }
 
 async function startIndex(path, memoryName, destinationName) {
