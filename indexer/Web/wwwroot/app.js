@@ -458,6 +458,7 @@ function renderIndexedDetail(detail, folder) {
       <div>
         <h2>${idx.destinationName}</h2>
         <div class="detail-sub">${idx.memoryName} · ${idx.mediaItems.length} foto's · geïndexeerd op ${formatDate(idx.indexedAt)}</div>
+        <p class="detail-path">${folder.path}</p>
       </div>
       <div class="detail-actions">
         <button type="button" class="button ghost small" id="reindex-button">Herindexeren</button>
