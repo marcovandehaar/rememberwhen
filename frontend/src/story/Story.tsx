@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Memory } from '../catalog/types'
-import { beats, chapterTimeRange, type Beat } from './beats'
+import { beats, type Beat } from './beats'
 import { kenBurnsTransform, opacityAt } from './kenBurns'
 import { buildPlan } from './plan'
 import { HAS_SCROLL_TIMELINE } from './platform'
@@ -196,9 +196,7 @@ export function Story({
                 />
               )}
 
-              {b.chapterStart && (
-                <ChapterCard memory={memory} chapter={b.chapterStart} isFirst={b.i === 0} />
-              )}
+              {b.i === 0 && <ChapterCard memory={memory} />}
             </div>
           )
         })}
@@ -217,8 +215,7 @@ function GlobeIcon({ size = 15 }: { size?: number }) {
   )
 }
 
-function ChapterCard({ memory, chapter, isFirst }: { memory: Memory; chapter: Beat['chapterStart'] & object; isFirst: boolean }) {
-  const range = chapterTimeRange(chapter)
+function ChapterCard({ memory }: { memory: Memory }) {
   return (
     <div
       style={{
@@ -233,18 +230,16 @@ function ChapterCard({ memory, chapter, isFirst }: { memory: Memory; chapter: Be
       }}
     >
       <div>
-        {isFirst && (
-          <div
-            style={{
-              font: '500 13px/1 -apple-system, system-ui, sans-serif',
-              letterSpacing: '.22em',
-              textTransform: 'uppercase',
-              opacity: 0.8,
-            }}
-          >
-            {memory.destinationName}
-          </div>
-        )}
+        <div
+          style={{
+            font: '500 13px/1 -apple-system, system-ui, sans-serif',
+            letterSpacing: '.22em',
+            textTransform: 'uppercase',
+            opacity: 0.8,
+          }}
+        >
+          {memory.destinationName}
+        </div>
         <div
           style={{
             font: '600 40px/1.15 -apple-system, system-ui, sans-serif',
@@ -252,7 +247,7 @@ function ChapterCard({ memory, chapter, isFirst }: { memory: Memory; chapter: Be
             textShadow: '0 2px 30px rgba(0,0,0,.6)',
           }}
         >
-          {isFirst ? memory.name : range ?? ''}
+          {memory.name}
         </div>
       </div>
     </div>

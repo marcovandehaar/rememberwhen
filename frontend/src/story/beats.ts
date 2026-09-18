@@ -18,15 +18,3 @@ export function beats(memory: Memory): Beat[] {
   }
   return out
 }
-
-/** HH:mm from the first and last item's capturedAt in a Chapter, for the title card. */
-export function chapterTimeRange(chapter: Chapter): string | null {
-  const times = chapter.mediaItems
-    .map((m) => m.capturedAt)
-    .filter((t): t is string => t !== null)
-    .map((t) => new Date(t))
-  if (times.length === 0) return null
-
-  const fmt = (d: Date) => d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-  return `${fmt(times[0])} – ${fmt(times[times.length - 1])}`
-}
