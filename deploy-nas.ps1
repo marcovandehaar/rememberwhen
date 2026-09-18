@@ -2,15 +2,16 @@
 #
 #   frontend/dist -> /volume1/web/  -> https://nas.vandehaar.dev/
 #
-# -IndexerOutput publiceert daarnaast de output van een Indexer-run (#30):
-# catalog.json + media/ landen in de root van diezelfde webroot, naast
+# Publiceert daarnaast, zonder extra vlag nodig, de output van de Indexer-UI
+# (#30): catalog.json + media/ landen in de root van diezelfde webroot, naast
 # index.html — precies waar App.tsx's CATALOG_URL ('/catalog.json') en de
-# root-relatieve mediaRef/coverImage-paden uit het schema ze verwachten. Zo
-# is er geen handmatige stap tussen een Indexer-run en wat er op het toestel
-# staat, op het draaien van dit script na.
-#
-#   dotnet run --project indexer -- <bron> <memory> <bestemming> indexer/output
-#   ./deploy-nas.ps1 -IndexerOutput indexer/output
+# root-relatieve mediaRef/coverImage-paden uit het schema ze verwachten. De
+# bron daarvoor is gewoon de Indexer-UI's eigen ingestelde Output-locatie
+# (indexer/config.json's outputFolder) — zo staat elke net geïndexeerde map
+# na dit script meteen live, zonder dat je zelf het pad hoeft op te zoeken.
+# -IndexerOutput overschrijft die auto-detectie (of geeft '' om 'm over te
+# slaan); zonder config.json, of zonder catalog.json op die locatie, wordt
+# de indexer-output stilletjes overgeslagen — alleen dist/ gaat dan mee.
 #
 # Dit script raakt de .htaccess en .htpasswd-bestanden op de webroot niet aan:
 # die bevatten het Basic-auth-credential en horen niet in een publieke repo of
@@ -39,7 +40,7 @@ param(
   [string]$NasHost = '192.168.0.137',
   [string]$WebRoot = '/volume1/web',
   [string]$KeyFile = "$env:USERPROFILE\.ssh\rememberwhen_nas_ed25519",
-  [string]$IndexerOutput = ''
+  [string]$IndexerOutput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,6 +48,24 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dist     = Join-Path $repoRoot 'frontend\dist'
 $target   = "$NasUser@$NasHost"
 $ssh      = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new')
+
+# Mirrors UiServer.cs's ResolveRelativeToConfig: a rooted outputFolder (the
+# common case — a NAS UNC path) is used as-is, a relative one resolves
+# against config.json's own directory, same as the Indexer-UI itself does.
+if (-not $PSBoundParameters.ContainsKey('IndexerOutput')) {
+  $indexerConfigPath = Join-Path $repoRoot 'indexer\config.json'
+  if (Test-Path $indexerConfigPath) {
+    $outputFolder = (Get-Content $indexerConfigPath -Raw | ConvertFrom-Json).outputFolder
+    if ($outputFolder) {
+      $IndexerOutput = if ([System.IO.Path]::IsPathRooted($outputFolder)) { $outputFolder }
+        else { Join-Path (Split-Path -Parent $indexerConfigPath) $outputFolder }
+    }
+  }
+  if ($IndexerOutput -and -not (Test-Path (Join-Path $IndexerOutput 'catalog.json'))) {
+    Write-Host "Indexer-output op $IndexerOutput heeft nog geen catalog.json — sla over, alleen dist/ wordt gepubliceerd." -ForegroundColor Yellow
+    $IndexerOutput = ''
+  }
+}
 
 # -O dwingt het oude scp-protocol af. OpenSSH 9 gebruikt standaard SFTP, en dat
 # subsysteem staat op deze DSM uit: je krijgt dan "dest open ... No such file or
