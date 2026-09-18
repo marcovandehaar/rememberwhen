@@ -14,7 +14,7 @@ import { scrollProgress } from './scrollProgress'
  * the one still on screen. Picking by max `opacityAt` instead makes the tap
  * target match what's actually most opaque right now.
  */
-function activeIndex(plan: PlanEntry[], progress: number): number {
+export function activeIndex(plan: PlanEntry[], progress: number): number {
   let best = plan[0]?.b.i ?? 0
   let bestOpacity = -1
   for (const { b, start, end, first, last } of plan) {
