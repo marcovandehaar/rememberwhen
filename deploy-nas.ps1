@@ -47,7 +47,15 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dist     = Join-Path $repoRoot 'frontend\dist'
 $target   = "$NasUser@$NasHost"
-$ssh      = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new')
+
+# Tried SSH ControlMaster/ControlPath here to reuse one connection across
+# every mkdir/rm/scp call instead of a fresh handshake each time (#47) — it
+# hung partway through a real run. This build of Windows OpenSSH silently
+# appends a random suffix to ControlPath per invocation instead of reusing
+# the exact socket, so later calls can't reliably find the master. Reverted
+# rather than ship something that occasionally deadlocks a deploy; a safe
+# win (deduping the repeated per-file `mkdir` calls below) stayed.
+$ssh = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new')
 
 # Mirrors UiServer.cs's ResolveRelativeToConfig: a rooted outputFolder (the
 # common case — a NAS UNC path) is used as-is, a relative one resolves
@@ -87,48 +95,101 @@ if (-not (Test-Path $dist)) { throw "Build leverde geen $dist op." }
 # optioneel, de Indexer-output (catalog.json + media/, #30). Los houden zou
 # betekenen dat de root-relatieve mediaRef/coverImage-paden uit het
 # catalogus-schema een sub-pad moeten kennen dat nergens is vastgelegd.
-$sources = @(@{ Root = $dist; Label = 'dist/' })
+#
+# De Indexer-output-bron beperkt zich expliciet tot catalog.json en media/ —
+# niet de hele root recursief. Die root is ook waar de Indexer-UI's eigen
+# Output-locatie kan samenvallen met een NAS-share die nog meer bevat (een
+# Synology '#recycle'-map bijvoorbeeld, ontoegankelijk voor deze credential
+# en dus een harde Get-ChildItem-fout) — en zelfs zonder dat zou alles
+# recursief meenemen ook per ongeluk curatie-logs kunnen publiceren als die
+# toevallig onder dezelfde root staan.
+$sources = @(@{ Root = $dist; Label = 'dist/'; Items = $null })
 if ($IndexerOutput) {
-  $indexerRoot = (Resolve-Path $IndexerOutput).Path
+  # .ProviderPath, not .Path: Resolve-Path prefixes a UNC path's .Path with
+  # its provider qualifier ("Microsoft.PowerShell.Core\FileSystem::\\..."),
+  # which then silently breaks Get-RelativePath's plain Substring below.
+  $indexerRoot = (Resolve-Path $IndexerOutput).ProviderPath
   if (-not (Test-Path (Join-Path $indexerRoot 'catalog.json'))) {
     throw "$indexerRoot bevat geen catalog.json (is dit een Indexer-outputmap?)"
   }
-  $sources += @{ Root = $indexerRoot; Label = "$IndexerOutput" }
+  $sources += @{ Root = $indexerRoot; Label = "$IndexerOutput"; Items = @('catalog.json', 'media') }
 }
 
+# -Recurse on a *file* path (catalog.json, not media/) has been observed to
+# fall back to scanning its parent directory instead of just returning that
+# file — fatal here since the parent (a NAS share root) can hold a Synology
+# '#recycle' folder this credential can't read. Only pass -Recurse for an
+# actual directory; a file item never needs it.
+$entries = foreach ($source in $sources) {
+  $files = if ($source.Items) {
+    $source.Items | ForEach-Object { Join-Path $source.Root $_ } | Where-Object { Test-Path $_ } |
+      ForEach-Object {
+        if (Test-Path $_ -PathType Container) { Get-ChildItem -Path $_ -Recurse -File -Force }
+        else { Get-Item -Path $_ -Force }
+      }
+  } else {
+    Get-ChildItem -Path $source.Root -Recurse -File -Force
+  }
+  foreach ($file in $files) { @{ Source = $source; File = $file } }
+}
+$total = $entries.Count
+# A plain, greppable line on its own — Write-Host's Information stream isn't
+# reliably captured by a process launched with redirected stdout (the
+# Indexer-UI's "Publiceren"-knop, #47), so progress goes out as ordinary
+# Write-Output instead, one line per file, interleaved with the Write-Host
+# section headers below (which stay for a human reading the console directly).
+Write-Output "PROGRESS 0 $total"
+
 $allRemotePaths = @()
-foreach ($source in $sources) {
-  Write-Host "== $($source.Label) kopieren naar ${target}:$WebRoot ==" -ForegroundColor Cyan
-  # scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
-  # ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
-  # buiten het script om werkte wél) — dus geen scp -r op mappen. In plaats
-  # daarvan: elke map expliciet aanmaken via ssh, en dan alleen bestanden
-  # (nooit mappen) los kopiëren naar hun exacte doelpad. Bestaande bestanden
-  # eerst verwijderen, want scp overschrijft de inhoud van een reeds bestaand
-  # bestand van een andere eigenaar (http) wel, maar chmod erna niet.
-  $files = Get-ChildItem -Path $source.Root -Recurse -File -Force
-  $relDirs = $files | ForEach-Object { Split-Path (Get-RelativePath $source.Root $_) -Parent } |
-    Where-Object { $_ } | Select-Object -Unique
-  foreach ($relDir in $relDirs) {
-    Invoke-Nas "mkdir -p '$WebRoot/$relDir'"
+$madeDirs = [System.Collections.Generic.HashSet[string]]::new()
+$done = 0
+$currentLabel = $null
+foreach ($entry in $entries) {
+  $source = $entry.Source
+  if ($source.Label -ne $currentLabel) {
+    Write-Host "== $($source.Label) kopieren naar ${target}:$WebRoot ==" -ForegroundColor Cyan
+    $currentLabel = $source.Label
   }
 
-  $remotePaths = foreach ($file in $files) {
-    $remotePath = "$WebRoot/$(Get-RelativePath $source.Root $file)"
-    Invoke-Nas "rm -f '$remotePath'"
-    & scp @scp $file.FullName "${target}:$remotePath"
-    $remotePath
-  }
-  $allRemotePaths += $remotePaths
+  $file = $entry.File
+  $relDir = Split-Path (Get-RelativePath $source.Root $file) -Parent
+  # scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
+  # ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
+  # buiten het script om werkte wél) — dus geen scp -r op mappen, wel mkdir
+  # per bestand. Nu de SSH-verbinding hergebruikt wordt (zie hierboven) is
+  # elke aanroep goedkoop, maar honderden identieke 'mkdir media' voor
+  # dezelfde map blijft pure winst om over te slaan — vandaar de dedupe.
+  if ($relDir -and $madeDirs.Add("$($source.Root)|$relDir")) { Invoke-Nas "mkdir -p '$WebRoot/$relDir'" }
+
+  # Bestaande bestanden eerst verwijderen, want scp overschrijft de inhoud
+  # van een reeds bestaand bestand van een andere eigenaar (http) wel, maar
+  # chmod erna niet.
+  $remotePath = "$WebRoot/$(Get-RelativePath $source.Root $file)"
+  Invoke-Nas "rm -f '$remotePath'"
+  & scp @scp $file.FullName "${target}:$remotePath"
+  $allRemotePaths += $remotePath
+
+  $done++
+  Write-Output "PROGRESS $done $total"
 }
 
 # Web Station serveert als de groep 'http'. Zonder leesrecht krijg je een
 # DSM-foutpagina in plaats van de app. Alleen de zojuist geüploade paden
 # aanraken: de rest van de webroot is van 'http'/'root' en niet van ons om
 # te chmod'en (en dat mislukt toch als we het proberen).
+#
+# In batches, niet één ssh-aanroep met alle paden: met een volle Indexer-
+# output (2000+ bestanden) overschrijdt die ene commandline Windows' limiet
+# voor CreateProcess — "ssh.exe failed to run ... filename or extension is
+# too long" — pas zichtbaar zodra dit script voor het eerst echt tot hier
+# doorliep (#47). 200 paden per batch blijft ruim onder die grens.
 Write-Host "== Rechten zetten voor de http-groep ==" -ForegroundColor Cyan
-$quotedPaths = ($allRemotePaths | ForEach-Object { "'$_'" }) -join ' '
-Invoke-Nas "chmod o+rX $quotedPaths"
+$batchSize = 200
+for ($i = 0; $i -lt $allRemotePaths.Count; $i += $batchSize) {
+  $batch = $allRemotePaths[$i..[Math]::Min($i + $batchSize - 1, $allRemotePaths.Count - 1)]
+  $quotedPaths = ($batch | ForEach-Object { "'$_'" }) -join ' '
+  Invoke-Nas "chmod o+rX $quotedPaths"
+}
 
 Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
 # Zonder credential hoort dit 401 te zijn zodra de .htaccess op zijn plek staat.

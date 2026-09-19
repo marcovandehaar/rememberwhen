@@ -9,9 +9,38 @@
 <body>
   <div class="topbar">
     <h1>Indexer</h1>
-    <button type="button" class="icon-button" id="open-settings" title="Instellingen" aria-label="Instellingen">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.14 7.14 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.4.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.2.1.46.02.6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg>
-    </button>
+    <div class="row" style="margin:0">
+      <button type="button" class="button ghost small" id="open-deploy">Publiceren</button>
+      <button type="button" class="icon-button" id="open-settings" title="Instellingen" aria-label="Instellingen">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.14 7.14 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.4.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.2.1.46.02.6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="sheet-overlay" id="deploy-overlay" hidden>
+    <div class="sheet" style="max-width:480px">
+      <div class="sheet-head">
+        <h2>Publiceren</h2>
+        <button type="button" class="icon-button subtle" id="close-deploy" aria-label="Sluiten">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 4.98 4.98 6.4 10.59 12l-5.6 5.6 1.4 1.4 5.6-5.58 5.6 5.6 1.4-1.42-5.58-5.6 5.6-5.6-1.42-1.4-5.6 5.6z"/></svg>
+        </button>
+      </div>
+      <div class="sheet-section" style="border-top:none">
+        <p class="hint">Bouwt de frontend en publiceert 'm samen met de nieuwste geïndexeerde mappen naar de live site.</p>
+        <div id="deploy-idle">
+          <button type="button" class="button" id="start-deploy-button">Publiceren</button>
+        </div>
+        <div id="deploy-running" hidden>
+          <div class="detail-sub" id="deploy-status"><span class="spinner"></span>Bezig met publiceren…</div>
+          <progress id="deploy-progress"></progress>
+          <div class="log-box" id="deploy-log"></div>
+          <div class="row" style="justify-content:flex-end">
+            <button type="button" class="button ghost small" id="cancel-deploy-button">Annuleren</button>
+          </div>
+        </div>
+        <p class="error" id="deploy-error" style="max-width:480px" hidden></p>
+      </div>
+    </div>
   </div>
 
   <div class="shell">

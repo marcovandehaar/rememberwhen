@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using Indexer.Catalog;
@@ -199,6 +200,76 @@ public static class UiServer
 
                 state.AppendLog($"Catalogus bijgewerkt: {catalogPath}");
                 state.MarkSucceeded(catalogPath);
+            });
+
+            return Results.Json(new { runId = run.Id }, JsonOptions.Default);
+        });
+
+        app.MapPost("/api/deploy", () =>
+        {
+            var repoRoot = DeployRun.FindRepoRoot(configPath);
+            var scriptPath = Path.Combine(repoRoot, "deploy-nas.ps1");
+            if (!File.Exists(scriptPath))
+                return Results.BadRequest(new ErrorResponse($"deploy-nas.ps1 niet gevonden op {scriptPath}."));
+
+            var run = runs.Start(state =>
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "pwsh",
+                    WorkingDirectory = repoRoot,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                psi.ArgumentList.Add("-NoProfile");
+                psi.ArgumentList.Add("-File");
+                psi.ArgumentList.Add(scriptPath);
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+                // A hard kill, not the cooperative unwind CatalogBuilder gets —
+                // deploy-nas.ps1 has no notion of "stop between files", and
+                // re-running it later is safe regardless (rm -f + scp per
+                // file, same as any other rerun).
+                using var killOnCancel = state.CancellationToken.Register(() =>
+                {
+                    try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                });
+
+                // deploy-nas.ps1 emits "PROGRESS <done> <total>" lines for the
+                // bar (see there) alongside its normal human-readable
+                // Write-Host section headers, which go straight to the log —
+                // same split CatalogBuilder already has between its
+                // onProgress callback and its log writer.
+                string? line;
+                while ((line = process.StandardOutput.ReadLine()) is not null)
+                {
+                    var progress = DeployRun.ParseProgressLine(line);
+                    if (progress is { } p)
+                        state.SetProgress(p.Done, p.Total);
+                    else
+                        state.AppendLog(DeployRun.StripAnsi(line));
+                }
+
+                var stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                if (state.CancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException(state.CancellationToken);
+                if (process.ExitCode != 0)
+                {
+                    foreach (var stderrLine in stderr.Split('\n'))
+                    {
+                        var trimmed = DeployRun.StripAnsi(stderrLine).Trim();
+                        if (trimmed.Length > 0) state.AppendLog(trimmed);
+                    }
+                    throw new InvalidOperationException($"deploy-nas.ps1 gaf exitcode {process.ExitCode}.");
+                }
+
+                state.AppendLog("Gepubliceerd.");
+                state.MarkSucceeded(scriptPath);
             });
 
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);

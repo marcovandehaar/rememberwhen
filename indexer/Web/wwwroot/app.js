@@ -768,6 +768,111 @@ document.getElementById('test-nas-connection-button').addEventListener('click', 
   }
 });
 
+/* ============================================================= publiceren */
+
+// { runId, status, log, progressCurrent, progressTotal } — status stays
+// 'running'/'succeeded'/'failed'/'cancelled' after the run ends so the sheet
+// can show the final log instead of snapping back to the idle button; only
+// closing the sheet clears it.
+let activeDeploy = null;
+
+const deployOverlay = document.getElementById('deploy-overlay');
+
+document.getElementById('open-deploy').addEventListener('click', () => {
+  deployOverlay.hidden = false;
+  renderDeploy();
+});
+document.getElementById('close-deploy').addEventListener('click', closeDeployOverlay);
+deployOverlay.addEventListener('click', (e) => { if (e.target === deployOverlay) closeDeployOverlay(); });
+
+function closeDeployOverlay() {
+  if (activeDeploy && activeDeploy.status === 'running') return; // Annuleren first, or wait it out
+  activeDeploy = null;
+  deployOverlay.hidden = true;
+}
+
+function renderDeploy() {
+  const errorEl = document.getElementById('deploy-error');
+  errorEl.hidden = true;
+
+  const running = activeDeploy !== null;
+  document.getElementById('deploy-idle').hidden = running;
+  document.getElementById('deploy-running').hidden = !running;
+  if (!running) return;
+
+  const { status, progressCurrent, progressTotal, log, error } = activeDeploy;
+  const hasProgress = progressTotal != null && progressTotal > 0;
+  const progressEl = document.getElementById('deploy-progress');
+  if (hasProgress) { progressEl.value = progressCurrent; progressEl.max = progressTotal; }
+  else { progressEl.removeAttribute('value'); progressEl.removeAttribute('max'); }
+
+  const statusEl = document.getElementById('deploy-status');
+  const cancelButton = document.getElementById('cancel-deploy-button');
+  if (status === 'running') {
+    statusEl.innerHTML = '<span class="spinner"></span>Bezig met publiceren…';
+    cancelButton.textContent = 'Annuleren';
+    cancelButton.disabled = false;
+  } else {
+    cancelButton.textContent = 'Sluiten';
+    cancelButton.disabled = false;
+    if (status === 'succeeded') statusEl.textContent = 'Gepubliceerd.';
+    else if (status === 'cancelled') statusEl.textContent = 'Geannuleerd.';
+    else { statusEl.textContent = ''; errorEl.textContent = error; errorEl.hidden = false; }
+  }
+
+  document.getElementById('deploy-log').textContent = log.join('\n');
+}
+
+document.getElementById('start-deploy-button').addEventListener('click', async () => {
+  const errorEl = document.getElementById('deploy-error');
+  errorEl.hidden = true;
+  try {
+    const { runId } = await api('POST', '/api/deploy');
+    activeDeploy = { runId, status: 'running', log: [], progressCurrent: null, progressTotal: null, error: null };
+    renderDeploy();
+    pollDeploy();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+});
+
+// Doubles as "Sluiten" once the run has ended (see renderDeploy) — closing
+// the sheet at that point doesn't need a server round-trip.
+document.getElementById('cancel-deploy-button').addEventListener('click', async () => {
+  if (!activeDeploy) return;
+  if (activeDeploy.status !== 'running') { closeDeployOverlay(); return; }
+  await api('POST', `/api/runs/${activeDeploy.runId}/cancel`);
+});
+
+async function pollDeploy() {
+  const deploy = activeDeploy;
+  if (!deploy || deploy.status !== 'running') return;
+
+  try {
+    const state = await api('GET', `/api/runs/${deploy.runId}`);
+    if (activeDeploy !== deploy) return; // sheet was closed/reopened meanwhile
+
+    deploy.log = state.log;
+    deploy.progressCurrent = state.progressCurrent;
+    deploy.progressTotal = state.progressTotal;
+
+    if (state.status === 'running') {
+      renderDeploy();
+      setTimeout(pollDeploy, 400);
+      return;
+    }
+
+    deploy.status = state.status;
+    deploy.error = state.error;
+    renderDeploy();
+  } catch (err) {
+    deploy.status = 'failed';
+    deploy.error = err.message;
+    renderDeploy();
+  }
+}
+
 loadFolders();
 // Eager, independent of the settings sheet: the index-folder flow's own
 // Destination-naam field needs suggestions without a detour through Settings.
