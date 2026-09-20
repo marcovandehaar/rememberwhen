@@ -220,6 +220,14 @@ public static class UiServer
                     WorkingDirectory = repoRoot,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
+                    // Without this, .NET decodes the redirected stream using the
+                    // console's OEM codepage instead of the UTF-8 pwsh actually
+                    // writes when its stdout isn't a real console (redirected here)
+                    // — vite/npm's UTF-8 box-drawing and checkmark characters in
+                    // the "Frontend bouwen" section came through as garbled bytes
+                    // ("Γ£ô" for "✓") in the log without it.
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 };

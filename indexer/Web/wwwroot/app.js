@@ -479,10 +479,29 @@ function renderIndexedDetail(detail, folder) {
   `;
 
   const grid = document.getElementById('media-grid');
+  // <img loading="lazy"> defers fetching until a tile nears the viewport,
+  // but <video> has no such attribute — setting `src` up front made every
+  // video in the memory (dozens, for a trip with lots of clips) start
+  // loading the instant the grid rendered, stalling the photo loads
+  // alongside it. One IntersectionObserver per render gives video tiles the
+  // same lazy behaviour: `src` is only set once a tile actually scrolls
+  // into (near) view.
+  const videoObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const video = entry.target;
+      video.src = video.dataset.src;
+      videoObserver.unobserve(video);
+    }
+  }, { rootMargin: '200px' });
+
   for (const item of idx.mediaItems) {
     const tile = el(`<div class="media-tile"></div>`);
     if (item.type === 'video') {
-      tile.innerHTML = `<video src="${item.url}" muted></video>`;
+      tile.innerHTML = `<video muted></video>`;
+      const video = tile.querySelector('video');
+      video.dataset.src = item.url;
+      videoObserver.observe(video);
     } else {
       tile.innerHTML = `<img src="${item.url}" loading="lazy" alt="" />`;
     }
