@@ -3,6 +3,7 @@ import GlobeGL from 'react-globe.gl'
 import type { Memory } from '../catalog/types'
 import { PinChooser } from './PinChooser'
 import { pinsFor, type Pin } from './pins'
+import { useViewportSize } from './useViewportSize'
 
 // Variant A (#7): photographic night earth, glowing cover-photo pin, no
 // bloom — it cost two thirds of the framerate on the 2019 iPad and washed
@@ -26,6 +27,7 @@ type GlobeInstance = {
 export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (memory: Memory) => void }) {
   const ref = useRef<GlobeInstance | null>(null)
   const pins = pinsFor(memories)
+  const { width, height } = useViewportSize()
   // Set once the fly-in lands on a pin with more than one Memory — #11/#32:
   // tapping a shared pin zooms first, then offers a chooser, rather than
   // picking a Memory for the operator.
@@ -45,6 +47,8 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
     <>
       <GlobeGL
         ref={ref as never}
+        width={width}
+        height={height}
         onGlobeReady={() => ref.current?.pointOfView(HOME, 0)}
         globeImageUrl={TEX.night}
         bumpImageUrl={TEX.topology}
@@ -58,7 +62,13 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
           const pin = raw as Pin
           const el = document.createElement('div')
           el.style.cssText = 'cursor: pointer; pointer-events: auto;'
-          el.innerHTML = `
+          // The library owns `el`'s own transform (it repositions it every
+          // frame via CSS2DRenderer), so the press scale lives on this inner
+          // wrapper instead — same .12s ease-out motif as PinChooser's rows
+          // and arrows, so the pin rhymes with the sheet it's about to open.
+          const inner = document.createElement('div')
+          inner.style.cssText = 'transform: scale(1); transition: transform .12s ease-out;'
+          inner.innerHTML = `
             <div style="width:46px;height:46px;border-radius:50%;overflow:hidden;
                         border:2px solid rgba(255,255,255,.9);
                         box-shadow:0 0 16px rgba(120,180,255,.55), 0 4px 12px rgba(0,0,0,.6);">
@@ -66,6 +76,9 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
             </div>
             <div style="margin-top:5px;text-align:center;color:#fff;font:600 10px/1.2 -apple-system,system-ui,sans-serif;
                         text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap">${pin.destinationName}</div>`
+          el.appendChild(inner)
+          el.onpointerdown = () => (inner.style.transform = 'scale(0.88)')
+          el.onpointerup = el.onpointerleave = el.onpointercancel = () => (inner.style.transform = 'scale(1)')
           el.onclick = () => {
             const g = ref.current
             if (!g) return
