@@ -70,10 +70,20 @@ public static class UiServer
             // asking the server, which a rotated or re-covered file's same,
             // reused filename ran straight into (confirmed: the file was
             // correctly rewritten on disk, but the grid kept showing the
-            // pre-rotation image). "no-cache", not "no-store": still lets
-            // the browser skip re-downloading the thousands of thumbnails
-            // that didn't change, it just has to ask first.
-            context.Response.Headers.CacheControl = "no-cache";
+            // pre-rotation image).
+            //
+            // Tried "no-cache" first (forces revalidation instead of
+            // skipping the request outright) — still not enough: it
+            // revalidates against Last-Modified, an HTTP-date with only
+            // 1-second resolution, so rotating twice within the same second
+            // (easy to do — a real report) leaves the new file's rounded
+            // timestamp identical to what the browser already has, and the
+            // conditional request comes back a false 304. "no-store" instead
+            // skips conditional-GET entirely — always a full fresh fetch, no
+            // timestamp comparison to get wrong. This is a local admin
+            // screen serving off the NAS/LAN, not the public site, so paying
+            // for that on every thumbnail is cheap enough not to matter.
+            context.Response.Headers.CacheControl = "no-store";
             ContentTypes.TryGetContentType(fullPath, out var contentType);
             return Results.File(fullPath, contentType ?? "application/octet-stream");
         });
@@ -210,6 +220,15 @@ public static class UiServer
                     var pendingPublishPath = PendingPublishPath(configPath);
                     var pending = PendingPublish.AddMemory(PendingPublish.Load(pendingPublishPath), newMemory.Id);
                     PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
+
+                    // Every derivative here is either brand new or freshly
+                    // overwritten at a filename CatalogBuilder already used
+                    // before — cache-bust all of it, not just what changed
+                    // content-wise, since there's no cheap way to tell those
+                    // apart without reading each file back.
+                    MediaVersion.Touch(newMemory.CoverImage);
+                    foreach (var mediaRef in newMemory.Chapters.SelectMany(c => c.MediaItems).Select(i => i.MediaRef))
+                        MediaVersion.Touch(mediaRef);
                 }
 
                 var freshConfig = IndexerConfig.Load(configPath);
@@ -425,6 +444,7 @@ public static class UiServer
                 var pendingPublishPath = PendingPublishPath(configPath);
                 var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), $"media/{thumbFileName}");
                 PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
+                MediaVersion.Touch($"media/{thumbFileName}");
 
                 // Only after the replacement is confirmed on disk — same
                 // build-before-delete ordering as everywhere else here.
@@ -467,6 +487,7 @@ public static class UiServer
                 var pendingPublishPath = PendingPublishPath(configPath);
                 var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), item.MediaRef);
                 pending = PendingPublish.AddFile(pending, "catalog.json");
+                MediaVersion.Touch(item.MediaRef);
 
                 // The pin thumbnail is its own separate derivative (a
                 // different crop/size), generated from the story derivative —
@@ -478,6 +499,7 @@ public static class UiServer
                     DerivativeGenerator.GeneratePinThumbnail(
                         Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
                     pending = PendingPublish.AddFile(pending, memory.CoverImage);
+                    MediaVersion.Touch(memory.CoverImage);
                 }
 
                 PendingPublish.Save(pendingPublishPath, pending);
@@ -742,7 +764,7 @@ public static class UiServer
                     .SelectMany(c => c.MediaItems)
                     .Select(item => new MediaItemView(
                         item.Id,
-                        "/" + item.MediaRef,
+                        VersionedMediaUrl(item.MediaRef),
                         item.Type,
                         item.CapturedAt,
                         CatalogStore.IsCover(memory, item.Id)))
@@ -750,7 +772,7 @@ public static class UiServer
 
                 indexedView = new IndexedView(
                     indexed.MemoryId, indexed.MemoryName, indexed.DestinationName, memory.DestinationCoordinate,
-                    indexed.IndexedAt, "/" + memory.CoverImage, items);
+                    indexed.IndexedAt, VersionedMediaUrl(memory.CoverImage), items);
 
                 // The sidebar orders by when a trip happened, not when it was
                 // indexed — the earliest capture date across the memory's own
@@ -767,6 +789,18 @@ public static class UiServer
         // else), then indexed memories newest-trip-first.
         return [.. views.OrderByDescending(v => v.View.Indexed is null).ThenByDescending(v => v.TripDate).Select(v => v.View)];
     }
+
+    // A rotate or a new cover overwrites a derivative file at the exact same
+    // path — the URL alone can't tell a viewer anything changed. Reported
+    // live: the /media/ route already sends Cache-Control: no-store, but the
+    // browser still doesn't reliably re-fetch a same-URL <img> it's already
+    // rendered once in the document (a hard refresh always showed the new
+    // content; an in-page re-render didn't). Versioning the URL sidesteps
+    // that entirely — a changed file is, to every cache anywhere,
+    // unambiguously a different URL. MediaVersion.Get is an in-memory lookup
+    // (see there for why — a per-file stat() here once cost 16+ seconds).
+    private static string VersionedMediaUrl(string relativePath) =>
+        $"/{relativePath.Replace('\\', '/')}?v={MediaVersion.Get(relativePath)}";
 
     private static SettingsView BuildSettingsView(string configPath)
     {
