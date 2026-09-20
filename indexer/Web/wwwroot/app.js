@@ -559,7 +559,7 @@ function renderIndexedDetail(detail, folder) {
     grid.append(tile);
   }
 
-  document.getElementById('reindex-button').addEventListener('click', () => startIndex(folder.path));
+  document.getElementById('reindex-button').addEventListener('click', () => reindexFolder(folder));
   document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
 }
 
@@ -599,6 +599,20 @@ async function removeMediaItem(memoryId, itemId, tile) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
   }
+}
+
+// One click away from a rescan that silently brings back every removed
+// photo (see the caption above the grid) — worth the same are-you-sure as
+// deleting the folder outright.
+async function reindexFolder(folder) {
+  const confirmed = await confirmDialog({
+    title: `"${leafName(folder.path)}" opnieuw indexeren?`,
+    message: `Dit scant de map opnieuw. Verwijderde foto's uit deze reis verschijnen weer; de rest blijft zoals het was.`,
+    confirmLabel: 'Herindexeren',
+  });
+  if (!confirmed) return;
+
+  await startIndex(folder.path);
 }
 
 async function removeFolder(folder) {
