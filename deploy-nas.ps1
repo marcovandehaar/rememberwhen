@@ -80,10 +80,22 @@ if (-not $PSBoundParameters.ContainsKey('IndexerOutput')) {
 # directory" op een map die aantoonbaar bestaat.
 $scp = $ssh + '-O'
 
-function Invoke-Nas([string]$cmd) { & ssh @ssh $target $cmd }
+# $ErrorActionPreference = 'Stop' only turns PowerShell's own non-terminating
+# errors into terminating ones — it does not look at a native exe's exit
+# code, so an ssh call that actually failed would otherwise be silently
+# treated as success and the script would carry on. That distinction didn't
+# matter before the skip-unchanged-files manifest (below): every rerun redid
+# every file regardless, so a failed step just got retried next time. Now
+# that "already uploaded" is remembered, a swallowed failure here would get
+# permanently recorded as done and never retried — so it has to throw.
+function Invoke-Nas([string]$cmd) {
+  & ssh @ssh $target $cmd
+  if ($LASTEXITCODE -ne 0) { throw "ssh-commando mislukte (exit ${LASTEXITCODE}): $cmd" }
+}
 function Get-RelativePath([string]$root, [System.IO.FileInfo]$file) {
   $file.FullName.Substring($root.Length + 1).Replace('\', '/')
 }
+function Get-FileSignature([System.IO.FileInfo]$file) { "$($file.Length)|$($file.LastWriteTimeUtc.Ticks)" }
 
 Write-Host "== Frontend bouwen ==" -ForegroundColor Cyan
 Push-Location (Join-Path $repoRoot 'frontend')
@@ -132,7 +144,41 @@ $entries = foreach ($source in $sources) {
   }
   foreach ($file in $files) { @{ Source = $source; File = $file } }
 }
-$total = $entries.Count
+
+# Skip files that are already on the NAS unchanged (reported after publishing
+# a single changed cover photo still walked the entire media library — every
+# file got its own mkdir+rm+scp SSH round-trip regardless of whether it
+# differed from what's already live). Comparison is size + LastWriteTimeUtc,
+# not a content hash: that's metadata-only, which matters because
+# $IndexerOutput (indexer/config.json's outputFolder) can itself be a NAS
+# share, separate from $WebRoot — hashing would mean reading every unchanged
+# file's full content over the network on every publish, the exact cost this
+# is meant to avoid.
+$manifestPath = Join-Path $repoRoot 'deploy-nas.manifest.json'
+$manifest = @{}
+if (Test-Path $manifestPath) {
+  try { $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json -AsHashtable }
+  catch { Write-Host "deploy-nas.manifest.json onleesbaar, alles opnieuw publiceren." -ForegroundColor Yellow }
+}
+
+$planned = foreach ($entry in $entries) {
+  $remotePath = "$WebRoot/$(Get-RelativePath $entry.Source.Root $entry.File)"
+  $signature  = Get-FileSignature $entry.File
+  [pscustomobject]@{
+    Source     = $entry.Source
+    File       = $entry.File
+    RemotePath = $remotePath
+    Signature  = $signature
+    Unchanged  = ($manifest[$remotePath] -eq $signature)
+  }
+}
+$toUpload = @($planned | Where-Object { -not $_.Unchanged })
+$skipped = $planned.Count - $toUpload.Count
+if ($skipped -gt 0) {
+  Write-Host "$skipped ongewijzigd bestand(en) overgeslagen." -ForegroundColor DarkGray
+}
+
+$total = $toUpload.Count
 # A plain, greppable line on its own — Write-Host's Information stream isn't
 # reliably captured by a process launched with redirected stdout (the
 # Indexer-UI's "Publiceren"-knop, #47), so progress goes out as ordinary
@@ -144,14 +190,14 @@ $allRemotePaths = @()
 $madeDirs = [System.Collections.Generic.HashSet[string]]::new()
 $done = 0
 $currentLabel = $null
-foreach ($entry in $entries) {
-  $source = $entry.Source
+foreach ($planEntry in $toUpload) {
+  $source = $planEntry.Source
   if ($source.Label -ne $currentLabel) {
     Write-Host "== $($source.Label) kopieren naar ${target}:$WebRoot ==" -ForegroundColor Cyan
     $currentLabel = $source.Label
   }
 
-  $file = $entry.File
+  $file = $planEntry.File
   $relDir = Split-Path (Get-RelativePath $source.Root $file) -Parent
   # scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
   # ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
@@ -164,9 +210,10 @@ foreach ($entry in $entries) {
   # Bestaande bestanden eerst verwijderen, want scp overschrijft de inhoud
   # van een reeds bestaand bestand van een andere eigenaar (http) wel, maar
   # chmod erna niet.
-  $remotePath = "$WebRoot/$(Get-RelativePath $source.Root $file)"
+  $remotePath = $planEntry.RemotePath
   Invoke-Nas "rm -f '$remotePath'"
   & scp @scp $file.FullName "${target}:$remotePath"
+  if ($LASTEXITCODE -ne 0) { throw "scp mislukte voor $remotePath (exit ${LASTEXITCODE})" }
   $allRemotePaths += $remotePath
 
   $done++
@@ -190,6 +237,21 @@ for ($i = 0; $i -lt $allRemotePaths.Count; $i += $batchSize) {
   $quotedPaths = ($batch | ForEach-Object { "'$_'" }) -join ' '
   Invoke-Nas "chmod o+rX $quotedPaths"
 }
+
+# Written only once every planned file's scp *and* chmod both succeeded:
+# Invoke-Nas and the scp call above now throw on a nonzero exit code, so
+# $ErrorActionPreference = 'Stop' aborts the whole script — including this
+# block — before anything gets marked "already uploaded" that didn't fully
+# land (content copied but not yet readable by the http group counts as not
+# landed). Same reasoning applies to Annuleren's hard kill (#47's
+# idempotentie-eis): whatever didn't reach this line stays unmarked, so a
+# rerun retries it. Writing via a tempbestand + Move-Item, not directly to
+# deploy-nas.manifest.json, so that same hard kill can never leave behind a
+# half-written, unparseable JSON file either.
+foreach ($planEntry in $planned) { $manifest[$planEntry.RemotePath] = $planEntry.Signature }
+$manifestTmpPath = "$manifestPath.tmp"
+$manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestTmpPath -Encoding utf8
+Move-Item -LiteralPath $manifestTmpPath -Destination $manifestPath -Force
 
 Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
 # Zonder credential hoort dit 401 te zijn zodra de .htaccess op zijn plek staat.
