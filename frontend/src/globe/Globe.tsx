@@ -67,7 +67,7 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
           // wrapper instead — same .12s ease-out motif as PinChooser's rows
           // and arrows, so the pin rhymes with the sheet it's about to open.
           const inner = document.createElement('div')
-          inner.style.cssText = 'transform: scale(1); transition: transform .12s ease-out;'
+          inner.style.cssText = 'position: relative; transform: scale(1); transition: transform .12s ease-out;'
           inner.innerHTML = `
             <div style="width:46px;height:46px;border-radius:50%;overflow:hidden;
                         border:2px solid rgba(255,255,255,.9);
@@ -82,6 +82,17 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
           el.onclick = () => {
             const g = ref.current
             if (!g) return
+            // Echoes the pin's own ring, then pulses out and fades — a quick
+            // "tap registered" pip on top of the press scale, gone well
+            // before the 1200ms fly-in lands.
+            const ring = document.createElement('div')
+            ring.style.cssText =
+              'position:absolute;top:0;left:0;width:46px;height:46px;border-radius:50%;border:2px solid rgba(255,255,255,.9);pointer-events:none;'
+            inner.appendChild(ring)
+            ring.animate([{ transform: 'scale(1)', opacity: 0.9 }, { transform: 'scale(1.7)', opacity: 0 }], {
+              duration: 550,
+              easing: 'ease-out',
+            }).onfinish = () => ring.remove()
             g.pointOfView({ lat: pin.lat, lng: pin.lng, altitude: ZOOM_ALTITUDE }, 1200)
             window.setTimeout(() => setChooserPin(pin), 1200)
           }
