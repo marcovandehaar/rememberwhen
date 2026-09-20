@@ -15,6 +15,7 @@ public sealed class RunState
     private readonly List<string> _log = [];
     private readonly object _gate = new();
     private readonly CancellationTokenSource _cts = new();
+    private StreamWriter? _logFile;
 
     public string Id { get; } = Guid.NewGuid().ToString("n");
     public RunStatus Status { get; private set; } = RunStatus.Running;
@@ -24,9 +25,32 @@ public sealed class RunState
     public int? ProgressTotal { get; private set; }
     public CancellationToken CancellationToken => _cts.Token;
 
+    // CatalogBuilder already persists its own per-Memory log this way
+    // (curation-logs/{memoryId}.log); deploy runs had nothing, so a publish
+    // that hangs or dies left no trace anywhere but OS process state — see
+    // the Denmark 2023 publish that stalled on a single stuck `ssh rm -f`
+    // for ten-plus minutes with nothing on disk to show it. AutoFlush so a
+    // kill or crash mid-run still leaves everything logged up to that point.
+    public void EnableFileLog(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            _logFile = new StreamWriter(path, append: false) { AutoFlush = true };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"Kon logbestand niet wegschrijven naar {path}: {ex.Message}");
+        }
+    }
+
     public void AppendLog(string line)
     {
-        lock (_gate) _log.Add(line);
+        lock (_gate)
+        {
+            _log.Add(line);
+            _logFile?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {line}");
+        }
     }
 
     public void SetProgress(int current, int total)
@@ -50,9 +74,14 @@ public sealed class RunState
     {
         Error = error;
         Status = RunStatus.Failed;
+        AppendLog($"Mislukt: {error}"); // the field dies with the process; the file shouldn't
     }
 
-    public void MarkCancelled() => Status = RunStatus.Cancelled;
+    public void MarkCancelled()
+    {
+        Status = RunStatus.Cancelled;
+        AppendLog("Geannuleerd.");
+    }
 
     // Cooperative: CatalogBuilder.Build checks this between files, so a
     // cancelled run still unwinds cleanly (cleaning up what it already

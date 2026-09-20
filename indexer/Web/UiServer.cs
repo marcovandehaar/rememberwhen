@@ -260,6 +260,7 @@ public static class UiServer
             var mediaDir = Path.Combine(outputFolder, "media");
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
             var pendingPublishPath = PendingPublishPath(configPath);
+            var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
 
             // Resolved now, against whatever's on disk at the moment
             // Publiceren was clicked — not rediscovered by the script itself
@@ -273,6 +274,9 @@ public static class UiServer
 
             var run = runs.Start(state =>
             {
+                state.EnableFileLog(Path.Combine(curationFolder, $"publish-{DateTime.Now:yyyyMMdd-HHmmss}.log"));
+                state.AppendLog($"Publiceren gestart — {filesToPublish.Count} bestand(en) in de wachtrij.");
+
                 try
                 {
                     var psi = new ProcessStartInfo
