@@ -38,6 +38,25 @@ function leafName(path) {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
+// The log boxes are the only place a stuck or failed run's detail lives —
+// worth pasting into a bug report or to Claude, so it needs to leave the
+// browser as text. navigator.clipboard needs a secure context; localhost
+// (how the Indexer-UI is always reached) counts as one.
+async function copyLog(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    return;
+  }
+  const original = button.textContent;
+  button.textContent = 'Gekopieerd';
+  button.disabled = true;
+  setTimeout(() => {
+    button.textContent = original;
+    button.disabled = false;
+  }, 1200);
+}
+
 // Replaces confirm() with something that actually looks like part of this
 // app instead of OS chrome — reuses the settings sheet's visual language.
 function confirmDialog({ title, message, confirmLabel }) {
@@ -422,9 +441,13 @@ function renderRunningDetail(detail, folder) {
     <div class="detail-sub"><span class="spinner"></span>Bezig met indexeren…</div>
     <progress id="run-progress" ${hasProgress ? `value="${progressCurrent}" max="${progressTotal}"` : ''}></progress>
     <div class="log-box" id="run-log"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button type="button" class="button ghost small" id="copy-run-log-button">Kopiëren</button>
+    </div>
   `;
   document.getElementById('run-log').textContent = activeRun.log.join('\n');
   document.getElementById('cancel-run-button').addEventListener('click', cancelActiveRun);
+  document.getElementById('copy-run-log-button').addEventListener('click', (e) => copyLog(activeRun.log.join('\n'), e.currentTarget));
 }
 
 async function cancelActiveRun() {
@@ -918,6 +941,10 @@ document.getElementById('start-deploy-button').addEventListener('click', async (
     errorEl.textContent = err.message;
     errorEl.hidden = false;
   }
+});
+
+document.getElementById('copy-deploy-log-button').addEventListener('click', (e) => {
+  if (activeDeploy) copyLog(activeDeploy.log.join('\n'), e.currentTarget);
 });
 
 // Doubles as "Sluiten" once the run has ended (see renderDeploy) — closing
