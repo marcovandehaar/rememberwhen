@@ -142,12 +142,17 @@ function browseDialog() {
 /* ============================================================= sidebar */
 
 async function loadFolders({ preserveSelection = true } = {}) {
-  folders = await api('GET', '/api/folders');
+  const [folderList, pending] = await Promise.all([
+    api('GET', '/api/folders'),
+    api('GET', '/api/pending-publish'),
+  ]);
+  folders = folderList;
   if (!preserveSelection || !folders.some((f) => f.path === selectedPath)) {
     selectedPath = folders[0]?.path ?? null;
   }
   renderSidebar();
   renderDetail();
+  document.getElementById('open-deploy').disabled = !pending.hasPending;
 }
 
 function renderSidebar() {
@@ -885,6 +890,7 @@ async function pollDeploy() {
     deploy.status = state.status;
     deploy.error = state.error;
     renderDeploy();
+    loadFolders(); // a succeeded publish drains whatever was pending — flips the button back off
   } catch (err) {
     deploy.status = 'failed';
     deploy.error = err.message;

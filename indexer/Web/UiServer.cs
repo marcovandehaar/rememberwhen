@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Text.Json;
 using Indexer.Catalog;
 using Indexer.Config;
 using Indexer.Media;
@@ -121,6 +122,9 @@ public static class UiServer
                     CatalogStore.Save(CatalogStore.RemoveMemory(catalog, indexed.MemoryId), catalogPath);
                     if (memory is not null)
                         CatalogStore.DeleteMediaFilesForMemory(Path.Combine(outputFolder, "media"), memory);
+
+                    var pendingPublishPath = PendingPublishPath(configPath);
+                    PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
                 }
 
                 config.RemoveSourceFolder(path);
@@ -192,6 +196,10 @@ public static class UiServer
 
                     var merged = CatalogStore.Replace(existingCatalog, newMemory);
                     CatalogStore.Save(merged, catalogPath);
+
+                    var pendingPublishPath = PendingPublishPath(configPath);
+                    var pending = PendingPublish.AddMemory(PendingPublish.Load(pendingPublishPath), newMemory.Id);
+                    PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
                 }
 
                 var freshConfig = IndexerConfig.Load(configPath);
@@ -205,6 +213,12 @@ public static class UiServer
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);
         });
 
+        app.MapGet("/api/pending-publish", () =>
+        {
+            var pending = PendingPublish.Load(PendingPublishPath(configPath));
+            return Results.Json(new PendingPublishView(pending.Count > 0), JsonOptions.Default);
+        });
+
         app.MapPost("/api/deploy", () =>
         {
             var repoRoot = DeployRun.FindRepoRoot(configPath);
@@ -212,72 +226,106 @@ public static class UiServer
             if (!File.Exists(scriptPath))
                 return Results.BadRequest(new ErrorResponse($"deploy-nas.ps1 niet gevonden op {scriptPath}."));
 
+            var config = IndexerConfig.Load(configPath);
+            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var mediaDir = Path.Combine(outputFolder, "media");
+            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+            var pendingPublishPath = PendingPublishPath(configPath);
+
+            // Resolved now, against whatever's on disk at the moment
+            // Publiceren was clicked — not rediscovered by the script itself
+            // (deploy-nas.ps1 no longer scans $IndexerOutput at all).
+            var pending = PendingPublish.Load(pendingPublishPath);
+            var catalog = CatalogStore.Load(catalogPath);
+            var filesToPublish = PendingPublish.ResolveFiles(pending, catalog, mediaDir);
+
+            var pendingFilesJsonPath = Path.Combine(Path.GetTempPath(), $"rememberwhen-pending-{Guid.NewGuid():n}.json");
+            File.WriteAllText(pendingFilesJsonPath, JsonSerializer.Serialize(filesToPublish, JsonOptions.Default));
+
             var run = runs.Start(state =>
             {
-                var psi = new ProcessStartInfo
+                try
                 {
-                    FileName = "pwsh",
-                    WorkingDirectory = repoRoot,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    // Without this, .NET decodes the redirected stream using the
-                    // console's OEM codepage instead of the UTF-8 pwsh actually
-                    // writes when its stdout isn't a real console (redirected here)
-                    // — vite/npm's UTF-8 box-drawing and checkmark characters in
-                    // the "Frontend bouwen" section came through as garbled bytes
-                    // ("Γ£ô" for "✓") in the log without it.
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                psi.ArgumentList.Add("-NoProfile");
-                psi.ArgumentList.Add("-File");
-                psi.ArgumentList.Add(scriptPath);
-
-                using var process = new Process { StartInfo = psi };
-                process.Start();
-                // A hard kill, not the cooperative unwind CatalogBuilder gets —
-                // deploy-nas.ps1 has no notion of "stop between files", and
-                // re-running it later is safe regardless (rm -f + scp per
-                // file, same as any other rerun).
-                using var killOnCancel = state.CancellationToken.Register(() =>
-                {
-                    try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-                });
-
-                // deploy-nas.ps1 emits "PROGRESS <done> <total>" lines for the
-                // bar (see there) alongside its normal human-readable
-                // Write-Host section headers, which go straight to the log —
-                // same split CatalogBuilder already has between its
-                // onProgress callback and its log writer.
-                string? line;
-                while ((line = process.StandardOutput.ReadLine()) is not null)
-                {
-                    var progress = DeployRun.ParseProgressLine(line);
-                    if (progress is { } p)
-                        state.SetProgress(p.Done, p.Total);
-                    else
-                        state.AppendLog(DeployRun.StripAnsi(line));
-                }
-
-                var stderr = process.StandardError.ReadToEnd();
-                process.WaitForExit();
-
-                if (state.CancellationToken.IsCancellationRequested)
-                    throw new OperationCanceledException(state.CancellationToken);
-                if (process.ExitCode != 0)
-                {
-                    foreach (var stderrLine in stderr.Split('\n'))
+                    var psi = new ProcessStartInfo
                     {
-                        var trimmed = DeployRun.StripAnsi(stderrLine).Trim();
-                        if (trimmed.Length > 0) state.AppendLog(trimmed);
-                    }
-                    throw new InvalidOperationException($"deploy-nas.ps1 gaf exitcode {process.ExitCode}.");
-                }
+                        FileName = "pwsh",
+                        WorkingDirectory = repoRoot,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        // Without this, .NET decodes the redirected stream using the
+                        // console's OEM codepage instead of the UTF-8 pwsh actually
+                        // writes when its stdout isn't a real console (redirected here)
+                        // — vite/npm's UTF-8 box-drawing and checkmark characters in
+                        // the "Frontend bouwen" section came through as garbled bytes
+                        // ("Γ£ô" for "✓") in the log without it.
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
+                        StandardErrorEncoding = System.Text.Encoding.UTF8,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    };
+                    psi.ArgumentList.Add("-NoProfile");
+                    psi.ArgumentList.Add("-File");
+                    psi.ArgumentList.Add(scriptPath);
+                    psi.ArgumentList.Add("-PendingFilesJson");
+                    psi.ArgumentList.Add(pendingFilesJsonPath);
 
-                state.AppendLog("Gepubliceerd.");
-                state.MarkSucceeded(scriptPath);
+                    using var process = new Process { StartInfo = psi };
+                    process.Start();
+                    // A hard kill, not the cooperative unwind CatalogBuilder gets —
+                    // deploy-nas.ps1 has no notion of "stop between files", and
+                    // re-running it later is safe regardless: nothing gets marked
+                    // published below unless this run reaches the end.
+                    using var killOnCancel = state.CancellationToken.Register(() =>
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                    });
+
+                    // deploy-nas.ps1 emits "PROGRESS <done> <total>" lines for the
+                    // bar (see there) alongside its normal human-readable
+                    // Write-Host section headers, which go straight to the log —
+                    // same split CatalogBuilder already has between its
+                    // onProgress callback and its log writer.
+                    string? line;
+                    while ((line = process.StandardOutput.ReadLine()) is not null)
+                    {
+                        var progress = DeployRun.ParseProgressLine(line);
+                        if (progress is { } p)
+                            state.SetProgress(p.Done, p.Total);
+                        else
+                            state.AppendLog(DeployRun.StripAnsi(line));
+                    }
+
+                    var stderr = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+
+                    if (state.CancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException(state.CancellationToken);
+                    if (process.ExitCode != 0)
+                    {
+                        foreach (var stderrLine in stderr.Split('\n'))
+                        {
+                            var trimmed = DeployRun.StripAnsi(stderrLine).Trim();
+                            if (trimmed.Length > 0) state.AppendLog(trimmed);
+                        }
+                        throw new InvalidOperationException($"deploy-nas.ps1 gaf exitcode {process.ExitCode}.");
+                    }
+
+                    // Drop exactly what this run published, not the whole
+                    // file — a mutation logged while this publish was in
+                    // flight isn't in `pending` and survives for next time.
+                    lock (CatalogStore.Gate)
+                    {
+                        var current = PendingPublish.Load(pendingPublishPath);
+                        PendingPublish.Save(pendingPublishPath, current.Except(pending).ToList());
+                    }
+
+                    state.AppendLog("Gepubliceerd.");
+                    state.MarkSucceeded(scriptPath);
+                }
+                finally
+                {
+                    try { File.Delete(pendingFilesJsonPath); } catch (IOException) { }
+                }
             });
 
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);
@@ -325,6 +373,9 @@ public static class UiServer
                 CatalogStore.Save(result.Catalog, catalogPath);
                 CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
 
+                var pendingPublishPath = PendingPublishPath(configPath);
+                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
+
                 return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
             }
         });
@@ -360,6 +411,10 @@ public static class UiServer
                 var oldCoverPath = Path.Combine(outputFolder, memory.CoverImage);
                 var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}");
                 CatalogStore.Save(updated, catalogPath);
+
+                var pendingPublishPath = PendingPublishPath(configPath);
+                var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), $"media/{thumbFileName}");
+                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
 
                 // Only after the replacement is confirmed on disk — same
                 // build-before-delete ordering as everywhere else here.
@@ -684,6 +739,11 @@ public static class UiServer
         Path.IsPathRooted(maybeRelative)
             ? maybeRelative
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, maybeRelative));
+
+    // Lives next to config.json — operator-local bookkeeping, not part of
+    // the published output, same reasoning as config.json itself.
+    private static string PendingPublishPath(string configPath) =>
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, "pending-publish.json");
 }
 
 public sealed record PathRequest(string Path);
@@ -721,6 +781,8 @@ public sealed record NasCredentialsRequest(string Username, string Password);
 public sealed record TestConnectionResult(string Message);
 
 public sealed record GazetteerView(IReadOnlyDictionary<string, Coordinate> Entries);
+
+public sealed record PendingPublishView(bool HasPending);
 
 public sealed record RunView(
     RunStatus Status, List<string> Log, string? Error, string? CatalogPath,

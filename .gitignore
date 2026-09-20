@@ -23,9 +23,9 @@ indexer/curation-logs/
 # Operator-lokale instellingen (Source Folder-paden zijn machine-specifiek)
 indexer/config.json
 
-# Lokale staat van deploy-nas.ps1 (welke bestanden al op de NAS staan)
-deploy-nas.manifest.json
-deploy-nas.manifest.json.tmp
+# Publiceren-wachtrij: welke Indexer-output nog niet naar de NAS is — zie
+# PendingPublish.cs. Operator-lokale staat, net als config.json hierboven.
+indexer/pending-publish.json
 
 ### Frontend (Vite)
 frontend/node_modules/

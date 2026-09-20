@@ -2,16 +2,22 @@
 #
 #   frontend/dist -> /volume1/web/  -> https://nas.vandehaar.dev/
 #
-# Publiceert daarnaast, zonder extra vlag nodig, de output van de Indexer-UI
-# (#30): catalog.json + media/ landen in de root van diezelfde webroot, naast
+# Publiceert daarnaast de Indexer-UI's eigen output (#30): catalog.json en
+# specifieke media/-bestanden landen in de root van diezelfde webroot, naast
 # index.html — precies waar App.tsx's CATALOG_URL ('/catalog.json') en de
-# root-relatieve mediaRef/coverImage-paden uit het schema ze verwachten. De
-# bron daarvoor is gewoon de Indexer-UI's eigen ingestelde Output-locatie
-# (indexer/config.json's outputFolder) — zo staat elke net geïndexeerde map
-# na dit script meteen live, zonder dat je zelf het pad hoeft op te zoeken.
-# -IndexerOutput overschrijft die auto-detectie (of geeft '' om 'm over te
-# slaan); zonder config.json, of zonder catalog.json op die locatie, wordt
-# de indexer-output stilletjes overgeslagen — alleen dist/ gaat dan mee.
+# root-relatieve mediaRef/coverImage-paden uit het schema ze verwachten.
+#
+# Welke Indexer-outputbestanden dat zijn, bepaalt dit script niet meer zelf.
+# -PendingFilesJson wijst naar een JSON-bestand met een array van paden,
+# relatief aan de Indexer-UI's Output-locatie (indexer/config.json's
+# outputFolder) — geschreven door UiServer.cs vanuit de publiceer-wachtrij
+# (zie PendingPublish.cs: elke actie die iets publiceerbaars verandert —
+# herindexeren, een cover zetten, een foto of map verwijderen — logt daar
+# precies wat er gepubliceerd moet worden, in plaats van dat dit script de
+# hele Indexer-output steeds opnieuw scant en met een lokaal manifest
+# vergelijkt). Zonder dat bestand, of met een lege lijst, gaat alleen dist/
+# mee — dus ook een handmatige `pwsh ./deploy-nas.ps1` zonder die vlag
+# publiceert geen foto's meer, enkel de frontend-build.
 #
 # Dit script raakt de .htaccess en .htpasswd-bestanden op de webroot niet aan:
 # die bevatten het Basic-auth-credential en horen niet in een publieke repo of
@@ -40,7 +46,8 @@ param(
   [string]$NasHost = '192.168.0.137',
   [string]$WebRoot = '/volume1/web',
   [string]$KeyFile = "$env:USERPROFILE\.ssh\rememberwhen_nas_ed25519",
-  [string]$IndexerOutput
+  [string]$IndexerOutput,
+  [string]$PendingFilesJson
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,10 +76,6 @@ if (-not $PSBoundParameters.ContainsKey('IndexerOutput')) {
         else { Join-Path (Split-Path -Parent $indexerConfigPath) $outputFolder }
     }
   }
-  if ($IndexerOutput -and -not (Test-Path (Join-Path $IndexerOutput 'catalog.json'))) {
-    Write-Host "Indexer-output op $IndexerOutput heeft nog geen catalog.json — sla over, alleen dist/ wordt gepubliceerd." -ForegroundColor Yellow
-    $IndexerOutput = ''
-  }
 }
 
 # -O dwingt het oude scp-protocol af. OpenSSH 9 gebruikt standaard SFTP, en dat
@@ -82,12 +85,8 @@ $scp = $ssh + '-O'
 
 # $ErrorActionPreference = 'Stop' only turns PowerShell's own non-terminating
 # errors into terminating ones — it does not look at a native exe's exit
-# code, so an ssh call that actually failed would otherwise be silently
-# treated as success and the script would carry on. That distinction didn't
-# matter before the skip-unchanged-files manifest (below): every rerun redid
-# every file regardless, so a failed step just got retried next time. Now
-# that "already uploaded" is remembered, a swallowed failure here would get
-# permanently recorded as done and never retried — so it has to throw.
+# code, so an ssh/scp call that actually failed would otherwise be silently
+# treated as success and the script would carry on regardless.
 function Invoke-Nas([string]$cmd) {
   & ssh @ssh $target $cmd
   if ($LASTEXITCODE -ne 0) { throw "ssh-commando mislukte (exit ${LASTEXITCODE}): $cmd" }
@@ -95,7 +94,6 @@ function Invoke-Nas([string]$cmd) {
 function Get-RelativePath([string]$root, [System.IO.FileInfo]$file) {
   $file.FullName.Substring($root.Length + 1).Replace('\', '/')
 }
-function Get-FileSignature([System.IO.FileInfo]$file) { "$($file.Length)|$($file.LastWriteTimeUtc.Ticks)" }
 
 Write-Host "== Frontend bouwen ==" -ForegroundColor Cyan
 Push-Location (Join-Path $repoRoot 'frontend')
@@ -103,82 +101,30 @@ try { npm run build } finally { Pop-Location }
 
 if (-not (Test-Path $dist)) { throw "Build leverde geen $dist op." }
 
-# Beide bronnen publiceren naar dezelfde webroot-root: dist/ (de app) en,
-# optioneel, de Indexer-output (catalog.json + media/, #30). Los houden zou
-# betekenen dat de root-relatieve mediaRef/coverImage-paden uit het
-# catalogus-schema een sub-pad moeten kennen dat nergens is vastgelegd.
-#
-# De Indexer-output-bron beperkt zich expliciet tot catalog.json en media/ —
-# niet de hele root recursief. Die root is ook waar de Indexer-UI's eigen
-# Output-locatie kan samenvallen met een NAS-share die nog meer bevat (een
-# Synology '#recycle'-map bijvoorbeeld, ontoegankelijk voor deze credential
-# en dus een harde Get-ChildItem-fout) — en zelfs zonder dat zou alles
-# recursief meenemen ook per ongeluk curatie-logs kunnen publiceren als die
-# toevallig onder dezelfde root staan.
-$sources = @(@{ Root = $dist; Label = 'dist/'; Items = $null })
-if ($IndexerOutput) {
+# dist/ gaat altijd volledig mee — drie kleine, content-gehashte bestanden,
+# geen publiceer-wachtrij nodig (het is code, geen Indexer-content).
+$sources = @(@{ Root = $dist; Label = 'dist/'; Files = @(Get-ChildItem -Path $dist -Recurse -File -Force) })
+
+if ($IndexerOutput -and $PendingFilesJson -and (Test-Path $PendingFilesJson)) {
   # .ProviderPath, not .Path: Resolve-Path prefixes a UNC path's .Path with
   # its provider qualifier ("Microsoft.PowerShell.Core\FileSystem::\\..."),
   # which then silently breaks Get-RelativePath's plain Substring below.
   $indexerRoot = (Resolve-Path $IndexerOutput).ProviderPath
-  if (-not (Test-Path (Join-Path $indexerRoot 'catalog.json'))) {
-    throw "$indexerRoot bevat geen catalog.json (is dit een Indexer-outputmap?)"
+  $relativePaths = @(Get-Content $PendingFilesJson -Raw | ConvertFrom-Json)
+  $pendingFiles = foreach ($rel in $relativePaths) {
+    $full = Join-Path $indexerRoot $rel
+    if (Test-Path $full -PathType Leaf) { Get-Item -Path $full -Force }
+    else { Write-Host "Overgeslagen (niet (meer) gevonden): $rel" -ForegroundColor Yellow }
   }
-  $sources += @{ Root = $indexerRoot; Label = "$IndexerOutput"; Items = @('catalog.json', 'media') }
+  if ($pendingFiles) {
+    $sources += @{ Root = $indexerRoot; Label = "$IndexerOutput"; Files = @($pendingFiles) }
+  }
 }
 
-# -Recurse on a *file* path (catalog.json, not media/) has been observed to
-# fall back to scanning its parent directory instead of just returning that
-# file — fatal here since the parent (a NAS share root) can hold a Synology
-# '#recycle' folder this credential can't read. Only pass -Recurse for an
-# actual directory; a file item never needs it.
 $entries = foreach ($source in $sources) {
-  $files = if ($source.Items) {
-    $source.Items | ForEach-Object { Join-Path $source.Root $_ } | Where-Object { Test-Path $_ } |
-      ForEach-Object {
-        if (Test-Path $_ -PathType Container) { Get-ChildItem -Path $_ -Recurse -File -Force }
-        else { Get-Item -Path $_ -Force }
-      }
-  } else {
-    Get-ChildItem -Path $source.Root -Recurse -File -Force
-  }
-  foreach ($file in $files) { @{ Source = $source; File = $file } }
+  foreach ($file in $source.Files) { @{ Source = $source; File = $file } }
 }
-
-# Skip files that are already on the NAS unchanged (reported after publishing
-# a single changed cover photo still walked the entire media library — every
-# file got its own mkdir+rm+scp SSH round-trip regardless of whether it
-# differed from what's already live). Comparison is size + LastWriteTimeUtc,
-# not a content hash: that's metadata-only, which matters because
-# $IndexerOutput (indexer/config.json's outputFolder) can itself be a NAS
-# share, separate from $WebRoot — hashing would mean reading every unchanged
-# file's full content over the network on every publish, the exact cost this
-# is meant to avoid.
-$manifestPath = Join-Path $repoRoot 'deploy-nas.manifest.json'
-$manifest = @{}
-if (Test-Path $manifestPath) {
-  try { $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json -AsHashtable }
-  catch { Write-Host "deploy-nas.manifest.json onleesbaar, alles opnieuw publiceren." -ForegroundColor Yellow }
-}
-
-$planned = foreach ($entry in $entries) {
-  $remotePath = "$WebRoot/$(Get-RelativePath $entry.Source.Root $entry.File)"
-  $signature  = Get-FileSignature $entry.File
-  [pscustomobject]@{
-    Source     = $entry.Source
-    File       = $entry.File
-    RemotePath = $remotePath
-    Signature  = $signature
-    Unchanged  = ($manifest[$remotePath] -eq $signature)
-  }
-}
-$toUpload = @($planned | Where-Object { -not $_.Unchanged })
-$skipped = $planned.Count - $toUpload.Count
-if ($skipped -gt 0) {
-  Write-Host "$skipped ongewijzigd bestand(en) overgeslagen." -ForegroundColor DarkGray
-}
-
-$total = $toUpload.Count
+$total = $entries.Count
 # A plain, greppable line on its own — Write-Host's Information stream isn't
 # reliably captured by a process launched with redirected stdout (the
 # Indexer-UI's "Publiceren"-knop, #47), so progress goes out as ordinary
@@ -190,14 +136,14 @@ $allRemotePaths = @()
 $madeDirs = [System.Collections.Generic.HashSet[string]]::new()
 $done = 0
 $currentLabel = $null
-foreach ($planEntry in $toUpload) {
-  $source = $planEntry.Source
+foreach ($entry in $entries) {
+  $source = $entry.Source
   if ($source.Label -ne $currentLabel) {
     Write-Host "== $($source.Label) kopieren naar ${target}:$WebRoot ==" -ForegroundColor Cyan
     $currentLabel = $source.Label
   }
 
-  $file = $planEntry.File
+  $file = $entry.File
   $relDir = Split-Path (Get-RelativePath $source.Root $file) -Parent
   # scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
   # ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
@@ -210,7 +156,7 @@ foreach ($planEntry in $toUpload) {
   # Bestaande bestanden eerst verwijderen, want scp overschrijft de inhoud
   # van een reeds bestaand bestand van een andere eigenaar (http) wel, maar
   # chmod erna niet.
-  $remotePath = $planEntry.RemotePath
+  $remotePath = "$WebRoot/$(Get-RelativePath $source.Root $file)"
   Invoke-Nas "rm -f '$remotePath'"
   & scp @scp $file.FullName "${target}:$remotePath"
   if ($LASTEXITCODE -ne 0) { throw "scp mislukte voor $remotePath (exit ${LASTEXITCODE})" }
@@ -225,11 +171,10 @@ foreach ($planEntry in $toUpload) {
 # aanraken: de rest van de webroot is van 'http'/'root' en niet van ons om
 # te chmod'en (en dat mislukt toch als we het proberen).
 #
-# In batches, niet één ssh-aanroep met alle paden: met een volle Indexer-
-# output (2000+ bestanden) overschrijdt die ene commandline Windows' limiet
-# voor CreateProcess — "ssh.exe failed to run ... filename or extension is
-# too long" — pas zichtbaar zodra dit script voor het eerst echt tot hier
-# doorliep (#47). 200 paden per batch blijft ruim onder die grens.
+# In batches, niet één ssh-aanroep met alle paden: bij een grote herindexering
+# (honderden bestanden voor één Memory) overschrijdt één te lange commandline
+# Windows' limiet voor CreateProcess — "ssh.exe failed to run ... filename or
+# extension is too long" (#47). 200 paden per batch blijft ruim onder die grens.
 Write-Host "== Rechten zetten voor de http-groep ==" -ForegroundColor Cyan
 $batchSize = 200
 for ($i = 0; $i -lt $allRemotePaths.Count; $i += $batchSize) {
@@ -237,21 +182,6 @@ for ($i = 0; $i -lt $allRemotePaths.Count; $i += $batchSize) {
   $quotedPaths = ($batch | ForEach-Object { "'$_'" }) -join ' '
   Invoke-Nas "chmod o+rX $quotedPaths"
 }
-
-# Written only once every planned file's scp *and* chmod both succeeded:
-# Invoke-Nas and the scp call above now throw on a nonzero exit code, so
-# $ErrorActionPreference = 'Stop' aborts the whole script — including this
-# block — before anything gets marked "already uploaded" that didn't fully
-# land (content copied but not yet readable by the http group counts as not
-# landed). Same reasoning applies to Annuleren's hard kill (#47's
-# idempotentie-eis): whatever didn't reach this line stays unmarked, so a
-# rerun retries it. Writing via a tempbestand + Move-Item, not directly to
-# deploy-nas.manifest.json, so that same hard kill can never leave behind a
-# half-written, unparseable JSON file either.
-foreach ($planEntry in $planned) { $manifest[$planEntry.RemotePath] = $planEntry.Signature }
-$manifestTmpPath = "$manifestPath.tmp"
-$manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestTmpPath -Encoding utf8
-Move-Item -LiteralPath $manifestTmpPath -Destination $manifestPath -Force
 
 Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
 # Zonder credential hoort dit 401 te zijn zodra de .htaccess op zijn plek staat.
