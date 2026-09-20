@@ -78,6 +78,44 @@ public static class DerivativeGenerator
     // from it (a cover's pin thumbnail, say) would silently reuse whatever
     // was decoded the first time this path was ever touched — stale pixels,
     // not what's actually on disk now. Without this, that reproduced.
-    private static BitmapFrame Decode(string path) =>
-        BitmapDecoder.Create(new Uri(path), BitmapCreateOptions.IgnoreImageCache, BitmapCacheOption.OnLoad).Frames[0];
+    private static BitmapSource Decode(string path)
+    {
+        var frame = BitmapDecoder.Create(new Uri(path), BitmapCreateOptions.IgnoreImageCache, BitmapCacheOption.OnLoad).Frames[0];
+        return ApplyExifOrientation(frame);
+    }
+
+    // WIC decodes raw sensor pixels only — it exposes the EXIF Orientation
+    // tag (0x0112) as metadata but never applies it, unlike Explorer. Found
+    // via the Denmark 2023 import: phones commonly shoot a landscape sensor
+    // buffer tagged orientation=6 ("display me rotated 90°"), so every
+    // derivative came out sideways. Baking the rotation into the pixels once,
+    // here, means every caller downstream (scale, manual RotatePhoto) starts
+    // from pixels that are already upright, and the re-encoded output needs
+    // no orientation tag of its own. Only the three pure-rotation values are
+    // handled — the mirrored variants (2/4/5/7) don't come from any camera
+    // this library has seen.
+    private static BitmapSource ApplyExifOrientation(BitmapFrame frame)
+    {
+        if (frame.Metadata is not BitmapMetadata metadata) return frame;
+
+        ushort orientation;
+        try
+        {
+            orientation = metadata.GetQuery("System.Photo.Orientation") is ushort o ? o : (ushort)1;
+        }
+        catch (NotSupportedException)
+        {
+            return frame; // format carries no EXIF (e.g. PNG) — nothing to apply
+        }
+
+        System.Windows.Media.Transform? rotation = orientation switch
+        {
+            3 => new System.Windows.Media.RotateTransform(180),
+            6 => new System.Windows.Media.RotateTransform(90),
+            8 => new System.Windows.Media.RotateTransform(270),
+            _ => null,
+        };
+
+        return rotation is null ? frame : new TransformedBitmap(frame, rotation);
+    }
 }
