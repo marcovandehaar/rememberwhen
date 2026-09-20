@@ -667,12 +667,13 @@ public static class UiServer
         var catalogPath = Path.Combine(outputFolder, "catalog.json");
         var catalog = CatalogStore.Load(catalogPath);
 
-        return config.SourceFolders.Select(path =>
+        var views = config.SourceFolders.Select(path =>
         {
             var indexed = config.FindIndexed(path);
             var memory = indexed is null ? null : catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
 
             IndexedView? indexedView = null;
+            DateTimeOffset? tripDate = null;
             if (indexed is not null && memory is not null)
             {
                 var items = memory.Chapters
@@ -688,10 +689,21 @@ public static class UiServer
                 indexedView = new IndexedView(
                     indexed.MemoryId, indexed.MemoryName, indexed.DestinationName, memory.DestinationCoordinate,
                     indexed.IndexedAt, "/" + memory.CoverImage, items);
+
+                // The sidebar orders by when a trip happened, not when it was
+                // indexed — the earliest capture date across the memory's own
+                // photos, falling back to IndexedAt only for the rare memory
+                // with no EXIF timestamp on any item at all.
+                tripDate = items.Select(i => i.CapturedAt).Where(d => d.HasValue).Select(d => d!.Value)
+                    .DefaultIfEmpty(indexed.IndexedAt).Min();
             }
 
-            return new FolderView(path, Directory.Exists(path), indexedView);
+            return (View: new FolderView(path, Directory.Exists(path), indexedView), TripDate: tripDate);
         }).ToList();
+
+        // Not-yet-indexed folders first (they need attention before anything
+        // else), then indexed memories newest-trip-first.
+        return [.. views.OrderByDescending(v => v.View.Indexed is null).ThenByDescending(v => v.TripDate).Select(v => v.View)];
     }
 
     private static SettingsView BuildSettingsView(string configPath)

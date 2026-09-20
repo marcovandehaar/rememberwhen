@@ -155,13 +155,35 @@ async function loadFolders({ preserveSelection = true } = {}) {
   document.getElementById('open-deploy').disabled = !pending.hasPending;
 }
 
+let folderFilter = '';
+
+// Matches free text against whatever's shown for a folder — the Memory and
+// Destination name once indexed, the bare folder name before that (there's
+// nothing else to search on yet).
+function matchesFolderFilter(folder) {
+  if (!folderFilter) return true;
+  const haystack = folder.indexed
+    ? `${folder.indexed.memoryName} ${folder.indexed.destinationName}`
+    : leafName(folder.path);
+  return haystack.toLowerCase().includes(folderFilter);
+}
+
+document.getElementById('folder-filter').addEventListener('input', (e) => {
+  folderFilter = e.target.value.trim().toLowerCase();
+  renderSidebar();
+});
+
 function renderSidebar() {
   const list = document.getElementById('folder-list');
   const empty = document.getElementById('folder-list-empty');
+  const filterEmpty = document.getElementById('folder-filter-empty');
   list.innerHTML = '';
-  empty.hidden = folders.length > 0;
 
-  for (const folder of folders) {
+  const visible = folders.filter(matchesFolderFilter);
+  empty.hidden = folders.length > 0;
+  filterEmpty.hidden = folders.length === 0 || visible.length > 0;
+
+  for (const folder of visible) {
     // A folder's own name is meaningless once it's indexed — several
     // folders can share a Destination (#44) and their leaf names don't
     // say so. The Memory name is what actually distinguishes them; the
