@@ -62,7 +62,14 @@ $target   = "$NasUser@$NasHost"
 # the exact socket, so later calls can't reliably find the master. Reverted
 # rather than ship something that occasionally deadlocks a deploy; a safe
 # win (deduping the repeated per-file `mkdir` calls below) stayed.
-$ssh = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new')
+#
+# ConnectTimeout/ServerAlive*: a real Denmark-2023 publish (505 files) hung
+# for 10+ minutes on a single `rm -f` — the TCP connection stayed
+# ESTABLISHED but nothing was flowing, and plain ssh has no default liveness
+# check, so it waited forever. These make OpenSSH itself notice a stalled
+# session (no keepalive reply within ~15s) and give up instead of hanging.
+$ssh = @('-i', $KeyFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new',
+         '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=3')
 
 # Mirrors UiServer.cs's ResolveRelativeToConfig: a rooted outputFolder (the
 # common case — a NAS UNC path) is used as-is, a relative one resolves
@@ -185,11 +192,23 @@ for ($i = 0; $i -lt $allRemotePaths.Count; $i += $batchSize) {
 
 Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
 # Zonder credential hoort dit 401 te zijn zodra de .htaccess op zijn plek staat.
-try {
-  $r = Invoke-WebRequest -Uri 'https://nas.vandehaar.dev/' -Method Head -SkipHttpErrorCheck -TimeoutSec 15
-  "{0,-3} {1}" -f $r.StatusCode, ($r.Headers['WWW-Authenticate'] -join '')
-} catch {
-  "ERR  $($_.Exception.Message)"
+#
+# -TimeoutSec bleek geen garantie: dezelfde publish waarbij de rm -f hierboven
+# vasthing, zag deze aanroep daarna óók vasthangen (een TLS-renegotiatie op
+# nas.vandehaar.dev die maar niet klaar was) terwijl alle 505 bestanden en de
+# rechten allang goed stonden — waardoor de hele run als mislukt gold en de
+# publiceer-wachtrij niet leegde. Een aparte Job met een eigen, wél afdwingbare
+# Wait-Job -Timeout kan dat niet meer: deze stap raakt nooit het eindresultaat.
+$checkJob = Start-Job -ScriptBlock {
+  try {
+    $r = Invoke-WebRequest -Uri 'https://nas.vandehaar.dev/' -Method Head -SkipHttpErrorCheck -TimeoutSec 10
+    "{0,-3} {1}" -f $r.StatusCode, ($r.Headers['WWW-Authenticate'] -join '')
+  } catch {
+    "ERR  $($_.Exception.Message)"
+  }
 }
+if (Wait-Job $checkJob -Timeout 15) { Receive-Job $checkJob }
+else { "ERR  Controle duurde te lang (>15s), overgeslagen — de publish zelf is wel voltooid." }
+Remove-Job $checkJob -Force
 
 Write-Host "`nKlaar. Open op de iPad: https://nas.vandehaar.dev/" -ForegroundColor Green
