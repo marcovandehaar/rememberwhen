@@ -112,6 +112,41 @@ public static class CatalogStore
         return Replace(catalog, updatedMemory);
     }
 
+    // Only the framing changes — everything else about the item, and every
+    // other item's order in its Chapter, stays exactly where it was.
+    public static RwCatalog SetStoryRect(RwCatalog catalog, string memoryId, string itemId, StoryRect storyRect)
+    {
+        var memory = catalog.Memories.First(m => m.Id == memoryId);
+        var chapter = memory.Chapters.First(c => c.MediaItems.Any(i => i.Id == itemId));
+        var item = chapter.MediaItems.First(i => i.Id == itemId);
+
+        var updatedItem = new RwMediaItem
+        {
+            Id = item.Id,
+            MediaRef = item.MediaRef,
+            Type = item.Type,
+            CapturedAt = item.CapturedAt,
+            StoryRect = storyRect,
+            ShotDuration = item.ShotDuration,
+        };
+        var updatedChapter = new RwChapter
+        {
+            Id = chapter.Id,
+            Location = chapter.Location,
+            MediaItems = [.. chapter.MediaItems.Select(i => i.Id == itemId ? updatedItem : i)],
+        };
+        var updatedMemory = new RwMemory
+        {
+            Id = memory.Id,
+            Name = memory.Name,
+            DestinationName = memory.DestinationName,
+            DestinationCoordinate = memory.DestinationCoordinate,
+            CoverImage = memory.CoverImage,
+            Chapters = [.. memory.Chapters.Select(c => c.Id == chapter.Id ? updatedChapter : c)],
+        };
+        return Replace(catalog, updatedMemory);
+    }
+
     // Every derivative file for a Chapter is named starting with the Chapter
     // id, e.g. "schotland-2010-c1-0000-...". Deleting by that prefix removes
     // the whole Chapter's files in one pass.

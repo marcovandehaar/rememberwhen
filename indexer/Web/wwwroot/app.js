@@ -5,6 +5,7 @@ const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 
 const FOLDER_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg>';
 const WARN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1 21h22L12 3Zm0 6 6.5 10.5h-13L12 9Zm-.9 3v3.5h1.8V12h-1.8Zm0 4.5V18h1.8v-1.5h-1.8Z"/></svg>';
 const STAR_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.9L22 9.6l-5.5 4.8L18 22l-6-3.9L6 22l1.5-7.6L2 9.6l7.1-.7L12 2Z"/></svg>';
+const ROTATE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"/></svg>';
 
 let folders = [];
 let selectedPath = null;
@@ -545,6 +546,16 @@ function renderIndexedDetail(detail, folder) {
         tile.append(coverButton);
       }
     }
+
+    // Rotating the current cover is exactly as valid as any other photo —
+    // it's the one tile the buttons above deliberately skip, so this needs
+    // its own check rather than living inside that if/else.
+    if (item.type !== 'video') {
+      const rotateButton = el(`<button type="button" class="rotate-item" title="Roteer 90°">${ROTATE_ICON}</button>`);
+      rotateButton.addEventListener('click', () => rotateMediaItem(idx.memoryId, item.id));
+      tile.append(rotateButton);
+    }
+
     grid.append(tile);
   }
 
@@ -557,6 +568,18 @@ async function setCoverMediaItem(memoryId, itemId) {
   errorEl.hidden = true;
   try {
     await api('PUT', '/api/media-items/cover', { memoryId, itemId });
+    await loadFolders();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+}
+
+async function rotateMediaItem(memoryId, itemId) {
+  const errorEl = document.getElementById('media-item-error');
+  errorEl.hidden = true;
+  try {
+    await api('POST', '/api/media-items/rotate', { memoryId, itemId });
     await loadFolders();
   } catch (err) {
     errorEl.textContent = err.message;

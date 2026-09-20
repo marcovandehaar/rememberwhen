@@ -219,6 +219,30 @@ public class CatalogStoreTests : IDisposable
     }
 
     [Fact]
+    public void SetStoryRect_updates_only_the_matching_items_framing()
+    {
+        var catalog = new RwCatalog { Memories = [TwoItemMemory()] };
+        var newRect = new StoryRect(0.1, 0.2, 0.5, 0.5);
+
+        var result = CatalogStore.SetStoryRect(catalog, "a", "a-c1-0001-y", newRect);
+
+        var chapter = Assert.Single(Assert.Single(result.Memories).Chapters);
+        Assert.Equal(newRect, chapter.MediaItems.Single(i => i.Id == "a-c1-0001-y").StoryRect);
+        Assert.NotEqual(newRect, chapter.MediaItems.Single(i => i.Id == "a-c1-0000-x").StoryRect);
+    }
+
+    [Fact]
+    public void SetStoryRect_preserves_the_order_of_items_in_the_chapter()
+    {
+        var catalog = new RwCatalog { Memories = [TwoItemMemory()] };
+
+        var result = CatalogStore.SetStoryRect(catalog, "a", "a-c1-0000-x", new StoryRect(0, 0, 1, 1));
+
+        var chapter = Assert.Single(Assert.Single(result.Memories).Chapters);
+        Assert.Equal(["a-c1-0000-x", "a-c1-0001-y"], chapter.MediaItems.Select(i => i.Id));
+    }
+
+    [Fact]
     public void DeleteMediaFilesForMemory_derives_the_prefix_from_the_memorys_own_chapters()
     {
         Directory.CreateDirectory(_root);

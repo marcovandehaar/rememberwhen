@@ -31,10 +31,34 @@ public static class DerivativeGenerator
     public static void GeneratePinThumbnail(string sourcePath, string outputPath) =>
         EncodeResizedJpeg(sourcePath, PinThumbnailWidth, outputPath);
 
+    // Rotates a derivative in place — never the original source file, same
+    // rule as everywhere else here. Returns the rotated pixel size, since
+    // 90°/270° swap width and height and the caller needs that to recompute
+    // framing (StoryRectFormula).
+    public static (int Width, int Height) RotatePhoto(string path, int degrees)
+    {
+        var frame = Decode(path);
+        var rotated = new TransformedBitmap(frame, new System.Windows.Media.RotateTransform(degrees));
+
+        var encoder = new JpegBitmapEncoder { QualityLevel = Quality };
+        encoder.Frames.Add(BitmapFrame.Create(rotated));
+
+        using (var stream = File.Create(path))
+        {
+            encoder.Save(stream);
+        }
+
+        // Re-decode rather than trust `rotated`'s own PixelWidth/Height: this
+        // reads the same path it just overwrote, which is exactly the case
+        // Decode()'s IgnoreImageCache exists for — without it this silently
+        // returned the pre-rotation size (confirmed in testing).
+        var writtenFrame = Decode(path);
+        return (writtenFrame.PixelWidth, writtenFrame.PixelHeight);
+    }
+
     private static void EncodeResizedJpeg(string sourcePath, int targetWidth, string outputPath)
     {
-        var decoder = BitmapDecoder.Create(new Uri(sourcePath), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
-        var frame = decoder.Frames[0];
+        var frame = Decode(sourcePath);
 
         var width = Math.Min(targetWidth, frame.PixelWidth); // never upscale
         var scale = (double)width / frame.PixelWidth;
@@ -47,4 +71,13 @@ public static class DerivativeGenerator
         using var stream = File.Create(outputPath);
         encoder.Save(stream);
     }
+
+    // IgnoreImageCache: WPF's imaging pipeline otherwise caches a decoded
+    // bitmap by its URI/path for the lifetime of the process. RotatePhoto
+    // reads and overwrites the same path, so a later derivative regenerated
+    // from it (a cover's pin thumbnail, say) would silently reuse whatever
+    // was decoded the first time this path was ever touched — stale pixels,
+    // not what's actually on disk now. Without this, that reproduced.
+    private static BitmapFrame Decode(string path) =>
+        BitmapDecoder.Create(new Uri(path), BitmapCreateOptions.IgnoreImageCache, BitmapCacheOption.OnLoad).Frames[0];
 }

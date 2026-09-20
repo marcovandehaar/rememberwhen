@@ -57,13 +57,23 @@ public static class UiServer
 
         // Media derivatives live under the (configurable, arbitrary) output
         // folder, not under wwwroot, so they need their own route.
-        app.MapGet("/media/{fileName}", (string fileName) =>
+        app.MapGet("/media/{fileName}", (HttpContext context, string fileName) =>
         {
             var config = IndexerConfig.Load(configPath);
             var mediaDir = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "media");
             var fullPath = Path.Combine(mediaDir, Path.GetFileName(fileName));
             if (!File.Exists(fullPath)) return Results.NotFound();
 
+            // Results.File sets Last-Modified but no Cache-Control, so with
+            // nothing else to go on the browser applies heuristic caching —
+            // it can serve a stale copy from its own cache without ever
+            // asking the server, which a rotated or re-covered file's same,
+            // reused filename ran straight into (confirmed: the file was
+            // correctly rewritten on disk, but the grid kept showing the
+            // pre-rotation image). "no-cache", not "no-store": still lets
+            // the browser skip re-downloading the thousands of thumbnails
+            // that didn't change, it just has to ask first.
+            context.Response.Headers.CacheControl = "no-cache";
             ContentTypes.TryGetContentType(fullPath, out var contentType);
             return Results.File(fullPath, contentType ?? "application/octet-stream");
         });
@@ -424,6 +434,58 @@ public static class UiServer
             }
         });
 
+        app.MapPost("/api/media-items/rotate", (RotateMediaItemRequest body) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var mediaDir = Path.Combine(outputFolder, "media");
+            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+
+            lock (CatalogStore.Gate) // #44
+            {
+                var catalog = CatalogStore.Load(catalogPath);
+
+                var memory = catalog.Memories.FirstOrDefault(m => m.Id == body.MemoryId);
+                if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
+                var chapter = memory.Chapters.FirstOrDefault(c => c.MediaItems.Any(i => i.Id == body.ItemId));
+                var item = chapter?.MediaItems.FirstOrDefault(i => i.Id == body.ItemId);
+                if (chapter is null || item is null) return Results.NotFound(new ErrorResponse("Onbekend Media Item."));
+
+                if (item.Type == MediaKind.Video)
+                    return Results.BadRequest(new ErrorResponse("Een video kan niet geroteerd worden."));
+
+                // The story derivative, never the original source file — same
+                // rule as everywhere else in this review screen.
+                var (width, height) = DerivativeGenerator.RotatePhoto(Path.Combine(outputFolder, item.MediaRef), degrees: 90);
+
+                var itemIndex = chapter.MediaItems.FindIndex(i => i.Id == item.Id);
+                var storyRect = StoryRectFormula.Compute(width, height, itemIndex);
+                var updated = CatalogStore.SetStoryRect(catalog, memory.Id, item.Id, storyRect);
+                CatalogStore.Save(updated, catalogPath);
+
+                var pendingPublishPath = PendingPublishPath(configPath);
+                var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), item.MediaRef);
+                pending = PendingPublish.AddFile(pending, "catalog.json");
+
+                // The pin thumbnail is its own separate derivative (a
+                // different crop/size), generated from the story derivative —
+                // so it needs regenerating from the now-rotated version too,
+                // same as when a cover is first set.
+                if (CatalogStore.IsCover(memory, item.Id))
+                {
+                    var thumbFileName = Path.GetFileName(memory.CoverImage);
+                    DerivativeGenerator.GeneratePinThumbnail(
+                        Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
+                    pending = PendingPublish.AddFile(pending, memory.CoverImage);
+                }
+
+                PendingPublish.Save(pendingPublishPath, pending);
+
+                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            }
+        });
+
         app.MapGet("/api/gazetteer", () =>
         {
             var (gazetteer, _, error) = LoadGazetteer(configPath,
@@ -765,6 +827,8 @@ public sealed record GazetteerEntryRequest(string Name, double Lat, double Lon);
 public sealed record IndexFolderRequest(string Path, string? MemoryName, string? DestinationName);
 
 public sealed record SetCoverRequest(string MemoryId, string ItemId);
+
+public sealed record RotateMediaItemRequest(string MemoryId, string ItemId);
 
 public sealed record ErrorResponse(string Error);
 

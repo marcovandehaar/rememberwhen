@@ -75,4 +75,62 @@ public class DerivativeGeneratorTests : IDisposable
         var result = PhotoMetadataReader.Read(_output);
         Assert.Equal(DerivativeGenerator.PinThumbnailWidth, result.Width);
     }
+
+    [Fact]
+    public void RotatePhoto_swaps_width_and_height_for_a_90_degree_turn()
+    {
+        TestImages.WriteJpeg(_source, width: 400, height: 300);
+
+        var (width, height) = DerivativeGenerator.RotatePhoto(_source, degrees: 90);
+
+        Assert.Equal(300, width);
+        Assert.Equal(400, height);
+        var result = PhotoMetadataReader.Read(_source);
+        Assert.Equal(300, result.Width);
+    }
+
+    [Fact]
+    public void RotatePhoto_overwrites_the_same_file_it_reads()
+    {
+        TestImages.WriteJpeg(_source, width: 400, height: 300);
+        var before = File.ReadAllBytes(_source);
+
+        DerivativeGenerator.RotatePhoto(_source, degrees: 90);
+
+        Assert.NotEqual(before, File.ReadAllBytes(_source));
+    }
+
+    [Fact]
+    public void RotatePhoto_four_quarter_turns_returns_to_the_original_size()
+    {
+        TestImages.WriteJpeg(_source, width: 400, height: 300);
+
+        (int width, int height) size = (0, 0);
+        for (var i = 0; i < 4; i++) size = DerivativeGenerator.RotatePhoto(_source, degrees: 90);
+
+        Assert.Equal((400, 300), size);
+    }
+
+    // Regression: WPF caches a decoded bitmap by its URI/path for the
+    // process's lifetime. RotatePhoto reads and overwrites _source, so
+    // regenerating a derivative from that same path afterwards — same
+    // sequence the "rotate the current cover" endpoint runs — must not
+    // silently pick up the pre-rotation decode still cached from the first
+    // read. This reproduced without Decode()'s IgnoreImageCache.
+    [Fact]
+    public void GeneratePinThumbnail_reads_fresh_pixels_right_after_RotatePhoto_touched_the_same_path()
+    {
+        TestImages.WriteJpeg(_source, width: 400, height: 300);
+        DerivativeGenerator.RotatePhoto(_source, degrees: 90); // now portrait, 300x400, on disk
+
+        DerivativeGenerator.GeneratePinThumbnail(_source, _output);
+
+        var result = PhotoMetadataReader.Read(_output);
+        Assert.Equal(DerivativeGenerator.PinThumbnailWidth, result.Width);
+        // A fixed-width-192 thumb of a 300x400 (portrait) source comes out
+        // taller than wide; the stale pre-rotation 400x300 (landscape)
+        // source would produce the opposite. Taller-than-wide proves this
+        // read the rotated pixels, not a cached pre-rotation decode.
+        Assert.True(result.Height > DerivativeGenerator.PinThumbnailWidth);
+    }
 }
