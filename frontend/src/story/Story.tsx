@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { motion, type Variants } from 'framer-motion'
 import type { Memory } from '../catalog/types'
 import { beats, type Beat } from './beats'
 import { kenBurnsTransform, opacityAt } from './kenBurns'
@@ -215,40 +216,137 @@ function GlobeIcon({ size = 15 }: { size?: number }) {
   )
 }
 
+const TITLE_SCRIM: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  display: 'grid',
+  placeItems: 'center',
+  background: 'linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.15) 45%, rgba(0,0,0,.55))',
+  textAlign: 'center',
+  color: '#fff',
+  pointerEvents: 'none',
+}
+
+const TITLE_LABEL: React.CSSProperties = {
+  font: '500 13px/1 "JetBrains Mono", monospace',
+  letterSpacing: '.22em',
+  textTransform: 'uppercase',
+  opacity: 0.8,
+}
+
+// Two animated treatments, picked once per viewing rather than one fixed
+// style — both survived a /prototype comparison against a third (a serif
+// word-by-word rise), see the prototype branch for that one.
 function ChapterCard({ memory }: { memory: Memory }) {
+  const [style] = useState<'cascade' | 'reveal'>(() => (Math.random() < 0.5 ? 'cascade' : 'reveal'))
+  return style === 'cascade' ? <CascadeTitle memory={memory} /> : <RevealTitle memory={memory} />
+}
+
+// Letters spring in with a small per-letter wobble, playful and bouncy.
+function CascadeTitle({ memory }: { memory: Memory }) {
+  const letters = useMemo(() => memory.name.split(''), [memory.name])
+  // Stable per-letter wobble, computed once so it doesn't reshuffle on rerender.
+  const wobble = useRef(letters.map(() => (Math.random() * 14 - 7).toFixed(1))).current
+
+  const container: Variants = {
+    hidden: {},
+    visible: { transition: { staggerChildren: 0.035, delayChildren: 0.1 } },
+  }
+  const letter = (rotate: string): Variants => ({
+    hidden: { opacity: 0, y: -26, rotate: `${-Number(rotate)}deg`, scale: 0.7 },
+    visible: { opacity: 1, y: 0, rotate: '0deg', scale: 1, transition: { type: 'spring', stiffness: 420, damping: 15 } },
+  })
+  const badge: Variants = {
+    hidden: { opacity: 0, scale: 0.7 },
+    visible: { opacity: 1, scale: 1, transition: { type: 'spring', stiffness: 300, damping: 14, delay: 0.05 } },
+  }
+
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'grid',
-        placeItems: 'center',
-        background: 'linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.15) 45%, rgba(0,0,0,.55))',
-        textAlign: 'center',
-        color: '#fff',
-        pointerEvents: 'none',
-      }}
-    >
+    <div style={TITLE_SCRIM}>
       <div>
-        <div
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={badge}
           style={{
-            font: '500 13px/1 -apple-system, system-ui, sans-serif',
-            letterSpacing: '.22em',
+            display: 'inline-block',
+            font: '600 12px/1 "JetBrains Mono", monospace',
+            letterSpacing: '.18em',
             textTransform: 'uppercase',
-            opacity: 0.8,
+            padding: '6px 14px',
+            borderRadius: 999,
+            background: 'rgba(255,255,255,.18)',
+            backdropFilter: 'blur(4px)',
           }}
         >
           {memory.destinationName}
-        </div>
-        <div
+        </motion.div>
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={container}
           style={{
-            font: '600 40px/1.15 -apple-system, system-ui, sans-serif',
+            marginTop: 16,
+            fontFamily: '"Fredoka", sans-serif',
+            fontWeight: 600,
+            fontSize: 42,
+            lineHeight: 1.15,
+            textShadow: '0 2px 30px rgba(0,0,0,.6)',
+          }}
+        >
+          {letters.map((ch, i) =>
+            ch === ' ' ? (
+              <span key={i}>&nbsp;</span>
+            ) : (
+              <motion.span key={i} variants={letter(wobble[i])} style={{ display: 'inline-block' }}>
+                {ch}
+              </motion.span>
+            ),
+          )}
+        </motion.div>
+      </div>
+    </div>
+  )
+}
+
+// The whole title unblurs and settles into place, calmer and more modern.
+function RevealTitle({ memory }: { memory: Memory }) {
+  const title: Variants = {
+    hidden: { opacity: 0, scale: 0.94, filter: 'blur(14px)' },
+    visible: { opacity: 1, scale: 1, filter: 'blur(0px)', transition: { duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.1 } },
+  }
+  const rule: Variants = {
+    hidden: { scaleX: 0, opacity: 0 },
+    visible: { scaleX: 1, opacity: 1, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 0.55 } },
+  }
+
+  return (
+    <div style={TITLE_SCRIM}>
+      <div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.75, transition: { duration: 0.4 } }} style={TITLE_LABEL}>
+          {memory.destinationName}
+        </motion.div>
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={title}
+          style={{
             marginTop: 14,
+            fontFamily: '"Space Grotesk", sans-serif',
+            fontWeight: 600,
+            fontSize: 42,
+            lineHeight: 1.15,
             textShadow: '0 2px 30px rgba(0,0,0,.6)',
           }}
         >
           {memory.name}
-        </div>
+        </motion.div>
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={rule}
+          style={{ height: 2, width: 64, background: 'rgba(255,255,255,.6)', margin: '16px auto 0', transformOrigin: 'center' }}
+        />
       </div>
     </div>
   )
