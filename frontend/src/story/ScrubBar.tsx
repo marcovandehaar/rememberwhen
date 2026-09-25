@@ -6,12 +6,12 @@ import { scrollProgress, setScrollProgress } from './scrollProgress'
 // importing PinChooser's: these are two unrelated features that happen to
 // agree on a timing, not one depending on the other.
 const TRANSITION_MS = 160
-// Comfortable to sweep a thumb across on a 1080px-wide iPad viewport
-// (docs/v1-build-spec.md) without spanning edge-to-edge, which would put
-// the track's own ends under the thumb's usual resting fingers.
-const TRACK_WIDTH = 280
+// 80% of the viewport, not edge-to-edge — leaves the track's own ends clear
+// of the thumb's usual resting fingers.
+const TRACK_WIDTH = '80vw'
 const HIT_AREA_HEIGHT = 44 // Apple HIG's minimum comfortable touch target
 const BUTTON_SIZE = 34 // matches PinChooser.tsx's NavArrow buttons
+const THUMB_SIZE = 28 // sized to land a fingertip on an iPad, not a mouse-precision target
 
 /**
  * The toggleable fast-scroll control (#50): a small always-visible button
@@ -130,10 +130,12 @@ export function ScrubBar({
               position: 'absolute',
               left: `${progress * 100}%`,
               top: '50%',
-              width: 16,
-              height: 16,
+              width: THUMB_SIZE,
+              height: THUMB_SIZE,
               borderRadius: '50%',
-              background: '#fff',
+              background: 'rgba(10,13,20,.4)',
+              border: '2.5px solid #fff',
+              boxSizing: 'border-box',
               // Globe.tsx's pin ring/glow colour (also PinChooser.tsx's
               // PIN_GLOW) — an existing accent, not a new one (ui-polish-taste).
               boxShadow: '0 0 12px rgba(120,180,255,.5)',
