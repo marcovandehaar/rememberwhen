@@ -3,8 +3,9 @@ import { motion, type Variants } from 'framer-motion'
 import type { Memory } from '../catalog/types'
 import { beats, type Beat } from './beats'
 import { kenBurnsTransform, opacityAt } from './kenBurns'
-import { buildPlan } from './plan'
+import { buildPlan, chapterTicks } from './plan'
 import { HAS_SCROLL_TIMELINE } from './platform'
+import { ScrubBar } from './ScrubBar'
 import { scrollProgress } from './scrollProgress'
 import { useContainerAspect } from './useContainerAspect'
 import { useScrollWindow } from './useScrollWindow'
@@ -31,11 +32,33 @@ export function Story({
   const shotRefs = useRef(new Map<number, HTMLDivElement>())
   const videoRefs = useRef(new Map<string, HTMLVideoElement>())
   const [sizes, setSizes] = useState<Map<string, NaturalSize>>(new Map())
+  // Which Media Items have actually finished loading — separate from `sizes`
+  // (photo-only, and also carries the natural size for kenBurns' crop math)
+  // because a video needs this signal too, just to know when to stop
+  // showing the fast-scroll bar's loading placeholder (#50).
+  const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set())
 
   const { totalUnits, entries: plan } = useMemo(() => buildPlan(list), [list])
   const { index, isMounted } = useScrollWindow(plan)
+  const ticks = useMemo(() => chapterTicks(plan), [plan])
+
+  // #50: a drag on ScrubBar scrolls the page itself (setScrollProgress),
+  // which must not count as the "real" scroll gesture that closes it —
+  // only a scroll that happens while this is false does.
+  const isDraggingScrubberRef = useRef(false)
+  const [scrubberOpen, setScrubberOpen] = useState(false)
+
+  useEffect(() => {
+    if (!scrubberOpen) return
+    const onScroll = () => {
+      if (!isDraggingScrubberRef.current) setScrubberOpen(false)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [scrubberOpen])
 
   const sizeFor = (id: string) => sizes.get(id) ?? FALLBACK_SIZE
+  const markLoaded = (id: string) => setLoadedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
 
   const onImageLoad = (id: string, e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget
@@ -44,6 +67,7 @@ export function Story({
       next.set(id, { width: img.naturalWidth, height: img.naturalHeight })
       return next
     })
+    markLoaded(id)
   }
 
   // --- path 1: the platform does it -------------------------------------
@@ -156,6 +180,13 @@ export function Story({
                 else shotRefs.current.delete(b.i)
               }}
               onClick={() => {
+                // #50: while the fast-scroll bar is open, the first tap on
+                // the photo just dismisses it — it doesn't also open
+                // whatever's currently underneath the thumb.
+                if (scrubberOpen) {
+                  setScrubberOpen(false)
+                  return
+                }
                 if (b.i !== index) return
                 onOpenItem(b.item, videoRefs.current.get(b.item.id)?.currentTime)
               }}
@@ -186,6 +217,7 @@ export function Story({
                   playsInline
                   loop
                   preload="metadata"
+                  onLoadedData={() => markLoaded(b.item.id)}
                   style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                 />
               ) : (
@@ -197,11 +229,32 @@ export function Story({
                 />
               )}
 
+              {/* #50: covers a not-yet-loaded target while fast-scroll-dragging
+                  past it — without this, jumping straight to an unmounted
+                  item flashes blank until the request completes. */}
+              {!loadedIds.has(b.item.id) && (
+                <motion.div
+                  aria-hidden
+                  style={{ position: 'absolute', inset: 0, background: '#0a0d14' }}
+                  animate={{ opacity: [0.4, 0.7, 0.4] }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              )}
+
               {b.i === 0 && <ChapterCard memory={memory} />}
             </div>
           )
         })}
       </div>
+
+      <ScrubBar
+        open={scrubberOpen}
+        onOpenChange={setScrubberOpen}
+        chapterTicks={ticks}
+        onDraggingChange={(dragging) => {
+          isDraggingScrubberRef.current = dragging
+        }}
+      />
     </>
   )
 }

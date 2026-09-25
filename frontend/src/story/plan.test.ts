@@ -1,11 +1,13 @@
 import { expect, test } from 'vitest'
-import { buildPlan } from './plan'
+import { buildPlan, chapterTicks } from './plan'
 import type { Beat } from './beats'
+import type { Chapter } from '../catalog/types'
 
 const rect = { x: 0, y: 0, width: 0.9, height: 0.9 }
+const chapter = (id: string): Chapter => ({ id, location: null, mediaItems: [] })
 
-function beat(i: number, shotDuration: number): Beat {
-  return { i, chapterStart: null, item: { id: `${i}`, mediaRef: `${i}.jpg`, type: 'photo', capturedAt: null, storyRect: rect, shotDuration } }
+function beat(i: number, shotDuration: number, chapterStart: Chapter | null = null): Beat {
+  return { i, chapterStart, item: { id: `${i}`, mediaRef: `${i}.jpg`, type: 'photo', capturedAt: null, storyRect: rect, shotDuration } }
 }
 
 test('equal shotDurations reproduce the original fixed cadence', () => {
@@ -54,4 +56,25 @@ test('an empty list produces no entries', () => {
   const { entries, totalUnits } = buildPlan([])
   expect(entries).toEqual([])
   expect(totalUnits).toBe(0)
+})
+
+test('chapterTicks: one tick per chapter, at that chapter\'s own start fraction', () => {
+  const { entries } = buildPlan([
+    beat(0, 4, chapter('c1')),
+    beat(1, 4),
+    beat(2, 4, chapter('c2')),
+    beat(3, 4),
+  ])
+
+  expect(chapterTicks(entries)).toEqual([entries[0].start, entries[2].start])
+})
+
+test('chapterTicks: a single-chapter Memory produces exactly one tick, at 0', () => {
+  const { entries } = buildPlan([beat(0, 4, chapter('c1')), beat(1, 4), beat(2, 4)])
+
+  expect(chapterTicks(entries)).toEqual([0])
+})
+
+test('chapterTicks: no entries produces no ticks', () => {
+  expect(chapterTicks([])).toEqual([])
 })

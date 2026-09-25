@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { scrollProgress } from './scrollProgress'
+import { scrollProgress, setScrollProgress } from './scrollProgress'
 
 function stub(scrollHeight: number, innerHeight: number, scrollY: number) {
   Object.defineProperty(document.documentElement, 'scrollHeight', { value: scrollHeight, configurable: true })
@@ -34,4 +34,40 @@ test('does not snap to 1 when meaningfully short of the max', () => {
 test('reports 0 when the page is not scrollable at all', () => {
   stub(800, 800, 0)
   expect(scrollProgress()).toBe(0)
+})
+
+test('setScrollProgress: jumps to the fraction of the scrollable distance, instantly (not smooth)', () => {
+  stub(2000, 800, 0)
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+  setScrollProgress(0.75)
+
+  expect(scrollTo).toHaveBeenCalledWith(0, 900) // max = 2000 - 800 = 1200; 0.75 * 1200 = 900
+})
+
+test('setScrollProgress: clamps a fraction below 0', () => {
+  stub(2000, 800, 0)
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+  setScrollProgress(-0.5)
+
+  expect(scrollTo).toHaveBeenCalledWith(0, 0)
+})
+
+test('setScrollProgress: clamps a fraction above 1', () => {
+  stub(2000, 800, 0)
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+  setScrollProgress(1.5)
+
+  expect(scrollTo).toHaveBeenCalledWith(0, 1200)
+})
+
+test('setScrollProgress: does nothing when the page is not scrollable at all', () => {
+  stub(800, 800, 0)
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+  setScrollProgress(0.5)
+
+  expect(scrollTo).not.toHaveBeenCalled()
 })

@@ -54,3 +54,8 @@ export function buildPlan(list: Beat[]): { totalUnits: number; entries: PlanEntr
 
   return { totalUnits, entries }
 }
+
+/** Fractional (0..1) position of each Chapter's opening entry — the fast-scroll bar's tick marks (#50). */
+export function chapterTicks(entries: PlanEntry[]): number[] {
+  return entries.filter((e) => e.b.chapterStart !== null).map((e) => e.start)
+}
