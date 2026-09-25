@@ -185,6 +185,7 @@ public static class UiServer
             var mediaDir = Path.Combine(outputFolder, "media");
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
             var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
+            var ffmpegPath = string.IsNullOrWhiteSpace(config.FfmpegPath) ? null : config.FfmpegPath;
 
             var run = runs.Start(state =>
             {
@@ -196,7 +197,7 @@ public static class UiServer
                 var log = new RunLogWriter(state);
                 var gazetteer = Gazetteer.Load(gazetteerPath);
                 var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, curationFolder, log,
-                    onProgress: state.SetProgress, cancellationToken: state.CancellationToken);
+                    onProgress: state.SetProgress, cancellationToken: state.CancellationToken, ffmpegPath: ffmpegPath);
                 var newMemory = built.Memories[0];
 
                 // #44: same reasoning as the other handlers — Load through

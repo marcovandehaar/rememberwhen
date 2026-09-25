@@ -39,6 +39,12 @@ public sealed class IndexerConfig
     // under) and the picker starts there instead, never wandering above it.
     public string SourceFoldersRoot { get; set; } = "";
 
+    // Empty means "not configured" — an HDR video is then published
+    // unchanged (with a log line) rather than blocking the run (#48).
+    // Full path to ffmpeg.exe, not just a bare name: the indexing machine
+    // running this isn't guaranteed to have it on PATH.
+    public string FfmpegPath { get; set; } = "";
+
     public static IndexerConfig Load(string path)
     {
         if (!File.Exists(path)) return new IndexerConfig();

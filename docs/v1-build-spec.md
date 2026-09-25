@@ -29,7 +29,7 @@ De `Indexer` leest `Source Folder`s, stelt de structuur van elke `Memory` voor, 
 - Doeltoestel: 10.2" iPad (2019 en 2021, identiek scherm), CSS-viewport 1080×810 landscape, DPR 2. Geen responsive ladder.
 - **Story-derivaat** per `Media Item`: 2160px breed (landscape CSS-breedte × DPR2), JPEG q82. Bron ≤ 2160px → derivaat overslaan, origineel serveren (nooit opschalen). Hergebruikt voor tap-to-fullscreen; geen apart fullscreen-derivaat.
 - **Pin-thumbnail**: 96 CSS px (192px fysiek), JPEG — alleen voor het cover-`Media Item` van elke `Memory`, niet voor elk item.
-- **Video**: origineel 1080p-bestand, geen transcodering, geen poster-frame.
+- **Video**: origineel 1080p-bestand, geen poster-frame. Uitzondering ([#48](https://github.com/marcovandehaar/rememberwhen/issues/48)): een HDR-clip (Dolby Vision/HLG) wordt tone-gemapt naar SDR H.264 via ffmpeg — onbewerkt zou hij zwaar overbelicht renderen in een gewone `<video>`-tag. Elke andere video blijft ongewijzigd.
 - Alles gegenereerd bij het indexeren, weggeschreven naar de NAS samen met de catalogus.
 - `.mts`/`.mpg` (camcorder-tijdperk, 11 bestanden) worden overgeslagen in de derivatenladder — geen aparte afhandeling in v1.
 - Formaten: alleen JPEG/WebP zijn toegestaan als output (Lockdown Mode); v1 gebruikt uitsluitend JPEG (WebP kost een extra .NET-dependency — genoteerd als eerste optimalisatie als laadtijd/opslag toch knelt). HEIC-input decodeert native via Windows WIC, geen ImageMagick/ffmpeg nodig.

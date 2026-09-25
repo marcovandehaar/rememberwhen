@@ -23,7 +23,11 @@ public static class CatalogBuilder
         string curationFolder,
         TextWriter? log = null,
         Action<int, int>? onProgress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        // Empty/null: an HDR clip (#48) publishes unchanged, logged, rather
+        // than blocking the run — same non-blocking spirit as every other
+        // anomaly this builder handles.
+        string? ffmpegPath = null)
     {
         var memoryId = Slug.From(memoryName);
         log ??= Console.Out;
@@ -161,7 +165,7 @@ public static class CatalogBuilder
                 var id = $"{chapterId}-{i:D4}-{Slug.From(Path.GetFileNameWithoutExtension(file.RelativePath))}";
 
                 var (mediaRef, shotDuration, isNew) = kind == MediaKind.Video
-                    ? PublishVideo(file, metadata, id, mediaDir)
+                    ? PublishVideo(file, metadata, id, mediaDir, ffmpegPath, log)
                     : PublishPhoto(file, metadata, id, mediaDir);
                 if (isNew) newlyWrittenFiles.Add(Path.Combine(outputFolder, mediaRef));
                 onProgress?.Invoke(++stepsDone, totalSteps);
@@ -223,9 +227,37 @@ public static class CatalogBuilder
         return ($"media/{fileName}", DefaultShotDuration, isNew);
     }
 
-    private static (string MediaRef, double ShotDuration, bool IsNew) PublishVideo(MediaFile file, MediaMetadata metadata, string id, string mediaDir)
+    // Original 1080p file, unmodified — no poster frame (#25). The one
+    // exception is HDR (#48): an untouched Dolby Vision/HLG clip renders
+    // severely overexposed in a plain <video> tag, so that case alone gets
+    // tone-mapped to SDR H.264 before publishing; everything else still
+    // takes the cheap 1-on-1 copy.
+    private static (string MediaRef, double ShotDuration, bool IsNew) PublishVideo(
+        MediaFile file, MediaMetadata metadata, string id, string mediaDir, string? ffmpegPath, TextWriter log)
     {
-        // Original 1080p file, unmodified — no transcoding, no poster frame (#25).
+        if (HdrVideoDetector.IsHdr(file.FullPath))
+        {
+            if (string.IsNullOrWhiteSpace(ffmpegPath))
+            {
+                log.WriteLine($"HDR-video gedetecteerd maar geen ffmpegPath ingesteld, ongewijzigd gepubliceerd: {file.RelativePath}");
+            }
+            else
+            {
+                var sdrFileName = $"{id}.mp4";
+                var sdrPath = Path.Combine(mediaDir, sdrFileName);
+                var sdrIsNew = !File.Exists(sdrPath);
+                try
+                {
+                    HdrTranscoder.ToneMapToSdr(ffmpegPath, file.FullPath, sdrPath);
+                    return ($"media/{sdrFileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, sdrIsNew);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException)
+                {
+                    log.WriteLine($"HDR-tone-mapping mislukt voor {file.RelativePath}, ongewijzigd gepubliceerd: {ex.Message}");
+                }
+            }
+        }
+
         var fileName = $"{id}{Path.GetExtension(file.FullPath).ToLowerInvariant()}";
         var path = Path.Combine(mediaDir, fileName);
         var isNew = !File.Exists(path);
