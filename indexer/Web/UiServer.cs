@@ -512,6 +512,56 @@ public static class UiServer
             }
         });
 
+        // A full reindex would also pick up a corrected Gazetteer entry, but
+        // it rescans every photo and undoes any curation (#44's removed
+        // items come back) — this only ever repoints a Memory at a
+        // Destination without that rescan. The same name back in is just a
+        // coordinate refresh; a different name re-homes the Memory.
+        app.MapPut("/api/memories/coordinate", (RefreshCoordinateRequest body) =>
+        {
+            var destinationName = body.DestinationName.Trim();
+            if (destinationName.Length == 0)
+                return Results.BadRequest(new ErrorResponse("Vul een Destination-naam in."));
+
+            var config = IndexerConfig.Load(configPath);
+            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
+            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+
+            var indexed = config.FindIndexed(body.Path);
+            if (indexed is null) return Results.NotFound(new ErrorResponse("Deze map is nog niet geïndexeerd."));
+
+            var (gazetteer, _, error) = LoadGazetteer(configPath,
+                resolved => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {resolved}.")));
+            if (error is not null) return error;
+
+            lock (CatalogStore.Gate) // #44
+            {
+                var catalog = CatalogStore.Load(catalogPath);
+                var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
+                if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
+                Coordinate coordinate;
+                try
+                {
+                    coordinate = gazetteer!.Lookup(destinationName);
+                }
+                catch (KeyNotFoundException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse(ex.Message));
+                }
+
+                var updated = CatalogStore.SetDestination(catalog, memory.Id, destinationName, coordinate);
+                CatalogStore.Save(updated, catalogPath);
+                config.UpdateIndexedDestinationName(body.Path, destinationName);
+                config.Save(configPath);
+
+                var pendingPublishPath = PendingPublishPath(configPath);
+                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
+
+                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            }
+        });
+
         app.MapGet("/api/gazetteer", () =>
         {
             var (gazetteer, _, error) = LoadGazetteer(configPath,
@@ -867,6 +917,8 @@ public sealed record IndexFolderRequest(string Path, string? MemoryName, string?
 public sealed record SetCoverRequest(string MemoryId, string ItemId);
 
 public sealed record RotateMediaItemRequest(string MemoryId, string ItemId);
+
+public sealed record RefreshCoordinateRequest(string Path, string DestinationName);
 
 public sealed record ErrorResponse(string Error);
 

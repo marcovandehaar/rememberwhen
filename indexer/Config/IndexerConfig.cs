@@ -80,6 +80,17 @@ public sealed class IndexerConfig
         });
     }
 
+    // Re-homing a Memory to a (possibly new) Destination changes this cached
+    // copy too — BuildFolderViews reads the sidebar/detail's destination
+    // name from here, not from catalog.json. Deliberately doesn't touch
+    // IndexedAt: that field means "photos last scanned", and picking a
+    // different Destination doesn't rescan anything.
+    public void UpdateIndexedDestinationName(string sourceFolder, string destinationName)
+    {
+        var indexed = FindIndexed(sourceFolder);
+        if (indexed is not null) indexed.DestinationName = destinationName;
+    }
+
     public void ForgetIndexed(string sourceFolder) =>
         IndexedFolders.RemoveAll(f => f.SourceFolder == sourceFolder);
 }

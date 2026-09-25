@@ -112,6 +112,26 @@ public static class CatalogStore
         return Replace(catalog, updatedMemory);
     }
 
+    // A Gazetteer edit alone never touches an already-indexed Memory — its
+    // Destination was resolved once, at index time (ADR 0005). This
+    // repoints a Memory at a (possibly different) Destination without the
+    // rescan a full reindex would also bring — same name back in just
+    // refreshes the coordinate, a different name re-homes the Memory.
+    public static RwCatalog SetDestination(RwCatalog catalog, string memoryId, string destinationName, Coordinate coordinate)
+    {
+        var memory = catalog.Memories.First(m => m.Id == memoryId);
+        var updatedMemory = new RwMemory
+        {
+            Id = memory.Id,
+            Name = memory.Name,
+            DestinationName = destinationName,
+            DestinationCoordinate = coordinate,
+            CoverImage = memory.CoverImage,
+            Chapters = memory.Chapters,
+        };
+        return Replace(catalog, updatedMemory);
+    }
+
     // Only the framing changes — everything else about the item, and every
     // other item's order in its Chapter, stays exactly where it was.
     public static RwCatalog SetStoryRect(RwCatalog catalog, string memoryId, string itemId, StoryRect storyRect)

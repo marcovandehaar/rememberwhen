@@ -512,12 +512,14 @@ function renderIndexedDetail(detail, folder) {
         <p class="detail-path">${folder.path}</p>
       </div>
       <div class="detail-actions">
+        <button type="button" class="button ghost small" id="refresh-coordinate-button" title="Haalt de coördinaat opnieuw op uit de Gazetteer, zonder opnieuw te indexeren">Coördinaat vernieuwen</button>
         <button type="button" class="button ghost small" id="reindex-button">Herindexeren</button>
         <button type="button" class="button danger small" id="remove-folder-button">Verwijderen</button>
       </div>
     </div>
     ${reindexError ? `<p class="error" style="max-width:480px">Herindexeren mislukt: ${reindexError}</p>` : ''}
     ${reindexCancelled ? `<p class="hint" style="max-width:480px">Herindexeren geannuleerd; de bestaande foto's hierboven staan nog onveranderd.</p>` : ''}
+    <div id="coordinate-picker"></div>
     ${notices.length > 0 ? `
       <details class="notices">
         <summary>${notices.length} melding${notices.length === 1 ? '' : 'en'} tijdens het indexeren</summary>
@@ -582,8 +584,51 @@ function renderIndexedDetail(detail, folder) {
     grid.append(tile);
   }
 
+  document.getElementById('refresh-coordinate-button').addEventListener('click', () => openCoordinatePicker(folder, idx.destinationName));
   document.getElementById('reindex-button').addEventListener('click', () => reindexFolder(folder));
   document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
+}
+
+// Picking the same Destination back just refreshes the coordinate (the
+// common case: a corrected Gazetteer entry); picking a different one
+// re-homes the Memory to it. Either way this skips the rescan — and lost
+// curation — a full reindex would also bring. The globe pin only picks up
+// the result after the next publish.
+function openCoordinatePicker(folder, currentDestinationName) {
+  const box = document.getElementById('coordinate-picker');
+  box.innerHTML = `
+    <div class="row" style="margin:8px 0">
+      <input type="text" id="coordinate-destination-input" list="destination-names" value="${currentDestinationName}" />
+      <button type="button" class="button small" id="apply-coordinate-button">Bijwerken</button>
+      <button type="button" class="button ghost small" id="cancel-coordinate-button">Annuleren</button>
+    </div>
+    <p class="error" id="coordinate-error" style="max-width:480px" hidden></p>
+  `;
+  const input = box.querySelector('#coordinate-destination-input');
+  input.focus();
+  input.select();
+  box.querySelector('#cancel-coordinate-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#apply-coordinate-button').addEventListener('click', (e) =>
+    applyCoordinate(folder.path, input.value.trim(), e.currentTarget));
+}
+
+async function applyCoordinate(path, destinationName, button) {
+  const errorEl = document.getElementById('coordinate-error');
+  errorEl.hidden = true;
+  if (!destinationName) {
+    errorEl.textContent = 'Vul een Destination-naam in.';
+    errorEl.hidden = false;
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api('PUT', '/api/memories/coordinate', { path, destinationName });
+    await loadFolders();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+    button.disabled = false;
+  }
 }
 
 async function setCoverMediaItem(memoryId, itemId) {
