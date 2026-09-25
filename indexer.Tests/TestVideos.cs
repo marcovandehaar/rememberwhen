@@ -8,7 +8,11 @@ namespace Indexer.Tests;
 // external tool needed, same spirit as TestImages' synthetic JPEGs.
 public static class TestVideos
 {
-    public static void WriteMinimalVideo(string path, bool dolbyVisionConfigBox = false, ushort? colrTransferFunction = null)
+    public static void WriteMinimalVideo(
+        string path,
+        bool dolbyVisionConfigBox = false,
+        ushort? colrTransferFunction = null,
+        string? quickTimeCreationDate = null)
     {
         var sampleEntryChildren = Array.Empty<byte>();
         if (dolbyVisionConfigBox) sampleEntryChildren = Concat(sampleEntryChildren, Box("dvvC", new byte[24]));
@@ -24,10 +28,35 @@ public static class TestVideos
         var minf = Box("minf", stbl);
         var mdia = Box("mdia", minf);
         var trak = Box("trak", mdia);
-        var moov = Box("moov", trak);
+
+        var moovBody = trak;
+        if (quickTimeCreationDate is not null)
+            moovBody = Concat(moovBody, MetaBoxWithCreationDate(quickTimeCreationDate));
+
+        var moov = Box("moov", moovBody);
         var ftyp = Box("ftyp", Concat(Encoding.ASCII.GetBytes("qt  "), new byte[4], Encoding.ASCII.GetBytes("qt  ")));
 
         File.WriteAllBytes(path, Concat(ftyp, moov));
+    }
+
+    // moov/meta's "keys" (one 'mdta' key name, here just the creation-date
+    // key) + "ilst" (one item, whose own box "type" is the 1-based key
+    // index rather than a four-character code, wrapping a "data" box) —
+    // the same shape a real iPhone .MOV carries (verified against
+    // IMG_3229.MOV's own moov/meta, #48 follow-up).
+    private static byte[] MetaBoxWithCreationDate(string creationDate)
+    {
+        var keyName = Encoding.ASCII.GetBytes("com.apple.quicktime.creationdate");
+        var keyEntry = Concat(UInt32BE((uint)(8 + keyName.Length)), Encoding.ASCII.GetBytes("mdta"), keyName);
+        var keysBody = Concat(new byte[4], UInt32BE(1), keyEntry); // version(1) + flags(3), entry_count=1
+        var keys = Box("keys", keysBody);
+
+        var valueBytes = Encoding.UTF8.GetBytes(creationDate);
+        var dataBody = Concat(UInt32BE(1), new byte[4], valueBytes); // type_indicator=1 (UTF-8), locale=0
+        var data = Box("data", dataBody);
+        var ilstItem = Concat(UInt32BE((uint)(8 + data.Length)), UInt32BE(1), data); // item "type" = key index 1
+
+        return Box("meta", Concat(keys, Box("ilst", ilstItem)));
     }
 
     private static byte[] NclxColorBox(ushort transferFunction) =>

@@ -1,6 +1,6 @@
 using System.IO;
 using System.Linq;
-using System.Text;
+using static Indexer.Media.Mp4BoxReader;
 
 namespace Indexer.Media;
 
@@ -54,43 +54,32 @@ public static class HdrVideoDetector
         while (stream.Position <= end - 8)
         {
             var boxStart = stream.Position;
-            long size = ReadUInt32BE(reader);
-            var type = ReadFourCc(reader);
-            var headerLength = 8L;
-            if (size == 1)
-            {
-                size = checked((long)ReadUInt64BE(reader));
-                headerLength = 16L;
-            }
-            else if (size == 0)
-            {
-                size = end - boxStart;
-            }
+            var header = ReadBoxHeader(reader, boxStart, end);
 
-            if (ContainerBoxes.Contains(type))
+            if (ContainerBoxes.Contains(header.Type))
             {
-                if (HasHdrSignal(reader, boxStart + size)) return true;
+                if (HasHdrSignal(reader, boxStart + header.Size)) return true;
             }
-            else if (type == "stsd")
+            else if (header.Type == "stsd")
             {
-                reader.ReadBytes(8); // version(1) + flags(3) + entry_count(4); entries are walked as children below
-                if (HasHdrSignal(reader, boxStart + size)) return true;
+                ReadExact(reader, 8); // version(1) + flags(3) + entry_count(4); entries are walked as children below
+                if (HasHdrSignal(reader, boxStart + header.Size)) return true;
             }
-            else if (VideoSampleEntries.Contains(type))
+            else if (VideoSampleEntries.Contains(header.Type))
             {
-                stream.Position = boxStart + headerLength + VideoSampleEntryFixedBodySize;
-                if (HasHdrSignal(reader, boxStart + size)) return true;
+                stream.Position = boxStart + header.HeaderLength + VideoSampleEntryFixedBodySize;
+                if (HasHdrSignal(reader, boxStart + header.Size)) return true;
             }
-            else if (type is "dvcC" or "dvvC")
+            else if (header.Type is "dvcC" or "dvvC")
             {
                 return true; // a Dolby Vision configuration box is itself the signal
             }
-            else if (type == "colr" && HasHdrTransferFunction(reader))
+            else if (header.Type == "colr" && HasHdrTransferFunction(reader))
             {
                 return true;
             }
 
-            stream.Position = boxStart + size;
+            stream.Position = boxStart + header.Size;
         }
 
         return false;
@@ -99,35 +88,8 @@ public static class HdrVideoDetector
     private static bool HasHdrTransferFunction(BinaryReader reader)
     {
         if (ReadFourCc(reader) != "nclx") return false;
-        reader.ReadBytes(2); // colour_primaries
+        ReadExact(reader, 2); // colour_primaries
         var transferFunction = ReadUInt16BE(reader);
         return transferFunction is PqTransferFunction or HlgTransferFunction;
-    }
-
-    private static uint ReadUInt32BE(BinaryReader reader)
-    {
-        var b = ReadExact(reader, 4);
-        return (uint)(b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3]);
-    }
-
-    private static ulong ReadUInt64BE(BinaryReader reader) =>
-        (ulong)ReadUInt32BE(reader) << 32 | ReadUInt32BE(reader);
-
-    private static ushort ReadUInt16BE(BinaryReader reader)
-    {
-        var b = ReadExact(reader, 2);
-        return (ushort)(b[0] << 8 | b[1]);
-    }
-
-    private static string ReadFourCc(BinaryReader reader) => Encoding.ASCII.GetString(ReadExact(reader, 4));
-
-    // BinaryReader.ReadBytes silently returns fewer bytes than asked for at
-    // EOF instead of throwing — this turns that into the EndOfStreamException
-    // IsHdr already treats as "not HDR."
-    private static byte[] ReadExact(BinaryReader reader, int count)
-    {
-        var bytes = reader.ReadBytes(count);
-        if (bytes.Length != count) throw new EndOfStreamException();
-        return bytes;
     }
 }

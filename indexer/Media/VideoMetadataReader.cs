@@ -13,6 +13,15 @@ namespace Indexer.Media;
 // the proven spike (spike/library-scan.ps1): COM object creation is not
 // free, and a fresh Shell.Application per file was measured nowhere. Dispose
 // releases every RCW this instance handed out, not just the outermost one.
+//
+// "Media created" (215) is Shell's read of the mvhd atom's own creation_time
+// — a legacy QuickTime field with no explicit UTC offset, found wrong by
+// over half an hour against neighbouring photos on a real trip (#48
+// follow-up). QuickTimeMetadataReader's "com.apple.quicktime.creationdate"
+// is a second, independently-written timestamp iPhone .MOV files carry
+// specifically to correct for that, so it's preferred when present; a video
+// without it (camcorder footage, or .mp4 recorded in "Most Compatible" mode)
+// still falls back to Shell's value, same as before.
 public sealed class VideoMetadataReader : IDisposable
 {
     private const int MediaCreatedIndex = 215;
@@ -32,7 +41,8 @@ public sealed class VideoMetadataReader : IDisposable
 
         try
         {
-            DateTimeOffset? capturedAt = ParseDate(folder.GetDetailsOf(item, MediaCreatedIndex));
+            DateTimeOffset? capturedAt = QuickTimeMetadataReader.ReadCreationDate(path)
+                ?? ParseDate(folder.GetDetailsOf(item, MediaCreatedIndex));
             var duration = ParseDuration(folder.GetDetailsOf(item, DurationIndex));
             var width = ParseDimension(folder.GetDetailsOf(item, FrameWidthIndex));
             var height = ParseDimension(folder.GetDetailsOf(item, FrameHeightIndex));
