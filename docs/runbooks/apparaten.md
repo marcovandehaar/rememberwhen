@@ -17,7 +17,7 @@ Elk apparaat heeft een eigen lange, willekeurige sleutel, bewaard als cookie. Di
 | Teller tegen gokken | `/volume1/web/devices/.enrol-attempts` |
 | De oude Basic-drempel, als terugweg | `/volume1/web/.htaccess.basic-backup` |
 
-Het huishoudwachtwoord staat nergens in leesbare vorm op de NAS of in de repo. Het is één keer getoond toen `deploy-auth.ps1` het maakte; bewaar het in je wachtwoordmanager.
+Het huishoudwachtwoord staat nergens in leesbare vorm op de NAS of in de repo; alleen de hash. Je kiest het zelf met `pwsh ./deploy-auth.ps1 -ChoosePassword` (verborgen invoer, twee keer) en bewaart het in je wachtwoordmanager.
 
 ## Een apparaat koppelen
 
@@ -48,7 +48,7 @@ De server kent geen verloop: een sleutel van een apparaat dat is gewist of kwijt
 
 ## Het huishoudwachtwoord vervangen
 
-Vanaf de repo, op de PC: `pwsh ./deploy-auth.ps1 -ResetPassword`. Het toont het nieuwe wachtwoord één keer. Bestaande apparaten blijven gewoon werken; het wachtwoord is alleen voor het koppelen van nieuwe.
+Vanaf de repo, op de PC: `pwsh ./deploy-auth.ps1 -ChoosePassword` (of `-ResetPassword` voor een gegenereerd wachtwoord dat één keer wordt getoond). Bestaande apparaten blijven gewoon werken; het wachtwoord is alleen voor het koppelen van nieuwe.
 
 ## Als het stuk is
 

@@ -10,8 +10,10 @@
 #
 # Terugdraaien: op de NAS `cp /volume1/web/.htaccess.basic-backup /volume1/web/.htaccess`.
 #
-# Het huishoudwachtwoord wordt hier gegenereerd en één keer getoond; op de NAS
-# staat alleen de bcrypt-hash (devices/.enrol-secret). Nieuw wachtwoord: -ResetPassword.
+# Het huishoudwachtwoord: met -ChoosePassword kies je het zelf (verborgen invoer,
+# twee keer); anders wordt er een gegenereerd en één keer getoond. Op de NAS staat
+# alleen de bcrypt-hash (devices/.enrol-secret). Nieuw wachtwoord: -ResetPassword
+# of nogmaals -ChoosePassword.
 
 param(
   [string]$NasUser = 'vandehaar',
@@ -19,7 +21,8 @@ param(
   [string]$WebRoot = '/volume1/web',
   [string]$KeyFile = "$env:USERPROFILE\.ssh\rememberwhen_nas_ed25519",
   [switch]$Stage,
-  [switch]$ResetPassword
+  [switch]$ResetPassword,
+  [switch]$ChoosePassword
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,18 +67,35 @@ $hasSecret = $false
 & ssh @ssh $target "test -s '$root/devices/.enrol-secret'"
 if ($LASTEXITCODE -eq 0) { $hasSecret = $true }
 
-if ($ResetPassword -or -not $hasSecret) {
+if ($ResetPassword -or $ChoosePassword -or -not $hasSecret) {
   Write-Host "== Huishoudwachtwoord instellen ==" -ForegroundColor Cyan
-  # Geen l/1/0/o/i: het wordt wel eens overgetypt.
-  $alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
-  $bytes = [byte[]]::new(20)
-  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-  $chars = $bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] }
-  $password = (0..3 | ForEach-Object { -join $chars[($_ * 5)..($_ * 5 + 4)] }) -join '-'
+  if ($ChoosePassword) {
+    # Zelf kiezen: het gaat verborgen van jouw toetsenbord rechtstreeks naar de NAS,
+    # die alleen de bcrypt-hash bewaart. Minstens 12 tekens; het wordt 1x per apparaat getypt.
+    while ($true) {
+      $first  = Read-Host 'Kies het huishoudwachtwoord (minstens 12 tekens)' -AsSecureString
+      $second = Read-Host 'Nog een keer' -AsSecureString
+      $password = [System.Net.NetworkCredential]::new('', $first).Password
+      if ($password -ne [System.Net.NetworkCredential]::new('', $second).Password) { Write-Host 'Die twee zijn niet gelijk. Opnieuw.' -ForegroundColor Yellow; continue }
+      if ($password.Length -lt 12) { Write-Host 'Te kort: minstens 12 tekens. Opnieuw.' -ForegroundColor Yellow; continue }
+      break
+    }
+  } else {
+    # Geen l/1/0/o/i: het wordt wel eens overgetypt.
+    $alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+    $bytes = [byte[]]::new(20)
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $chars = $bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] }
+    $password = (0..3 | ForEach-Object { -join $chars[($_ * 5)..($_ * 5 + 4)] }) -join '-'
+  }
   $password | & ssh @ssh $target "$php -r 'echo password_hash(trim(fgets(STDIN)), PASSWORD_BCRYPT);' > '$root/devices/.enrol-secret' && chmod a+r '$root/devices/.enrol-secret'"
   if ($LASTEXITCODE -ne 0) { throw 'Wachtwoord instellen mislukte.' }
-  Write-Host "`nHuishoudwachtwoord (eenmalig getoond, bewaar het in je wachtwoordmanager):" -ForegroundColor Yellow
-  Write-Host "  $password`n" -ForegroundColor Yellow
+  if ($ChoosePassword) {
+    Write-Host "`nHuishoudwachtwoord ingesteld.`n" -ForegroundColor Green
+  } else {
+    Write-Host "`nHuishoudwachtwoord (eenmalig getoond, bewaar het in je wachtwoordmanager):" -ForegroundColor Yellow
+    Write-Host "  $password`n" -ForegroundColor Yellow
+  }
 }
 
 $gate = (Get-Content (Join-Path $nas 'htaccess.template') -Raw).Replace('{{ROOT}}', $root).Replace('{{BASE}}', $base)
