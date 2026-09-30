@@ -27,3 +27,21 @@ It is a change because Basic could not do what the household needs. Safari forge
 - **Three lines of ADR 0004's amendment change.** The manifest and icons are exempt from the gate, so `crossorigin="use-credentials"` on the manifest link goes away; the `AddType` for `.webmanifest` stays; the app must still never set `credentials: 'omit'`.
 - **Two `.htaccess` traps.** A child `.htaccess` that says `RewriteEngine On` replaces these rules for its subtree unless it also says `RewriteOptions Inherit`. The gate is never wrapped in `<IfModule mod_rewrite.c>`, so a missing module fails the site loudly with a `500` instead of quietly serving everything to everyone.
 - **No new term enters `CONTEXT.md`**, for the reason ADR 0004 gave: an enrolled device is not an entity the app knows or shows. There is only authorization in front of the door.
+
+## Amendment, 2026-09-30: the bets hold, and here is what it cost
+
+Both unverified things were measured on the household's own devices ([issue #56](https://github.com/marcovandehaar/rememberwhen/issues/56)), and the mechanism is now live on `nas.vandehaar.dev`.
+
+- **`mod_rewrite` is loaded** on Web Station's Apache (2.4.63). A throwaway gate answered `403` as designed, so the `Require expr` fallback was not needed.
+- **The cookie survives force-quitting the installed app on the 2019 iPad, and a restart of the iPad.** The one thing Basic could never do. A Safari tab was not force-quit tested separately; the installed app is the supported form.
+- **Everything behind the gate works:** `<img>`, `fetch()`, a 20 MB `<video>` with seeking, also from 5G through [ADR 0006](0006-remote-access-through-a-tailscale-route-to-the-nass-private-address.md)'s route. Removing the key file locks a device out on the next request; the `CO` refresh on `catalog.json` moves the expiry 90 days out without creating a second cookie; eight wrong enrolment passwords lock enrolment for fifteen minutes, even for the right one.
+
+What it cost, beyond what this ADR predicted:
+
+1. **PHP has to be switched on for the site.** Web Station's Default Service had no PHP profile, so the enrolment page was served as text. Setting *PHP: Default Profile* on that service fixed it. "No PHP in the request path" held; "no PHP at all" never did, because enrolment needs it.
+2. **A hidden carriage return nearly broke the key.** `openssl` on Windows ends its output with CRLF, which made the key 44 characters and the `.htaccess` line wrong. `deploy-auth.ps1` now normalises everything it sends to LF.
+3. **The manifest had to become `standalone`**, since the installed app is where the cookie lives. The frontend's manifest link lost its `crossorigin`, and the auth probe now sends a `403` to `/enrol/` instead of reloading.
+4. **Enrolment avoids optional PHP extensions** (`mbstring`), so it runs on the default profile.
+5. **The household password is chosen by Marco** (`deploy-auth.ps1 -ChoosePassword`, hidden input, only the `bcrypt` hash reaches the NAS) rather than generated and displayed.
+
+What this does not change: the decision. Setup and removal of a device are in [`docs/runbooks/apparaten.md`](../runbooks/apparaten.md).
