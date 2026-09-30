@@ -62,5 +62,13 @@
   "Allgau": {
     "lat": 47.8241593,
     "lon": 11.6822424
+  },
+  "sant antoni de portmani": {
+    "lat": 38.9853694,
+    "lon": 1.2996819
+  },
+  "ho chi minh city": {
+    "lat": 10.7737261,
+    "lon": 106.7166008
   }
 }
