@@ -19,24 +19,10 @@
 # mee — dus ook een handmatige `pwsh ./deploy-nas.ps1` zonder die vlag
 # publiceert geen foto's meer, enkel de frontend-build.
 #
-# Dit script raakt de .htaccess en .htpasswd-bestanden op de webroot niet aan:
-# die bevatten het Basic-auth-credential en horen niet in een publieke repo of
-# een script dat per deploy opnieuw draait. Inhoud van /volume1/web/.htaccess
-# (ADR 0004 — de AddType-regel is de randvoorwaarde uit issue #17 die anders
-# spoorloos verdwijnt als het bestand ooit opnieuw wordt aangemaakt):
-#
-#   AuthType Basic
-#   AuthName "rememberwhen"
-#   AuthUserFile /volume1/web/.htpasswd-app
-#   Require valid-user
-#
-#   AddType application/manifest+json .webmanifest
-#
-# Zoals het credential-bestand eenmalig is aangemaakt:
-#
-#   ssh: HT=/var/packages/Apache2.4/target/usr/local/bin/htpasswd
-#        $HT -mc /volume1/web/.htpasswd-app ipad '<wachtwoord>'
-#        chmod a+r /volume1/web/.htpasswd-app
+# Dit script raakt de .htaccess, enrol/ en devices/ op de webroot niet aan: de
+# drempel (ADR 0007, apparaatsleutel in een cookie) wordt eenmalig neergezet met
+# deploy-auth.ps1, en de sleutelbestanden in devices/ horen bij de NAS, niet bij
+# een deploy. dist/ bevat niets dat daarmee botst.
 #
 # LET OP: de drempel werkt alleen als Web Station's back-end op Apache 2.4 staat.
 # Op nginx wordt .htaccess genegeerd en is er geen drempel.
@@ -191,7 +177,7 @@ for ($i = 0; $i -lt $allRemotePaths.Count; $i += $batchSize) {
 }
 
 Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
-# Zonder credential hoort dit 401 te zijn zodra de .htaccess op zijn plek staat.
+# Zonder apparaatsleutel hoort dit 403 te zijn zodra de .htaccess op zijn plek staat.
 #
 # -TimeoutSec bleek geen garantie: dezelfde publish waarbij de rm -f hierboven
 # vasthing, zag deze aanroep daarna óók vasthangen (een TLS-renegotiatie op
@@ -202,7 +188,7 @@ Write-Host "== Controle vanaf deze machine ==" -ForegroundColor Cyan
 $checkJob = Start-Job -ScriptBlock {
   try {
     $r = Invoke-WebRequest -Uri 'https://nas.vandehaar.dev/' -Method Head -SkipHttpErrorCheck -TimeoutSec 10
-    "{0,-3} {1}" -f $r.StatusCode, ($r.Headers['WWW-Authenticate'] -join '')
+    "{0,-3} zonder sleutel" -f $r.StatusCode
   } catch {
     "ERR  $($_.Exception.Message)"
   }

@@ -1,0 +1,3 @@
+# De sleutelbestanden zijn geheimen: nooit over HTTP leverbaar. Apache's
+# sleuteltest in de hoofd-.htaccess kijkt alleen of het bestand bestaat (-f).
+Require all denied

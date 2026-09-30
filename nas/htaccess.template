@@ -1,0 +1,33 @@
+# rememberwhen — de drempel (ADR 0007): een apparaatsleutel in een cookie.
+# Niet rechtstreeks kopiëren: deploy-auth.ps1 vult {{ROOT}} en {{BASE}} in.
+#
+# Nooit omwikkelen met <IfModule mod_rewrite.c>. Ontbreekt de module, dan hoort
+# de site luid te falen (500), niet stil open te gaan voor iedereen.
+#
+# Een .htaccess in een submap die zelf `RewriteEngine On` zegt, vervangt deze
+# regels voor die submap — tenzij hij ook `RewriteOptions Inherit` zegt.
+
+AddType application/manifest+json .webmanifest
+ErrorDocument 403 {{BASE}}enrol/index.php
+
+<FilesMatch "^(favicon\.ico|apple-touch-icon(-precomposed)?\.png)$">
+  Require all granted
+</FilesMatch>
+
+RewriteEngine On
+
+# Bereikbaar zonder sleutel: de aanmeldpagina, het manifest en de icoontjes.
+RewriteRule ^(enrol/|manifest\.webmanifest$|favicon|apple-touch-icon|android-chrome) - [L]
+
+# Geregistreerd apparaat: de cookie noemt een bestaand sleutelbestand. Elke
+# start haalt catalog.json op zonder cache (App.tsx), en vernieuwt hier de 90 dagen.
+RewriteCond %{HTTP_COOKIE} (?:^|;\s*)rw=([A-Za-z0-9_-]{43})(?:;|$)
+RewriteCond {{ROOT}}/devices/%1 -f
+RewriteRule ^catalog\.json$ - [CO=rw:%1:nas.vandehaar.dev:129600:{{BASE}}:secure:httponly:Lax,L]
+
+RewriteCond %{HTTP_COOKIE} (?:^|;\s*)rw=([A-Za-z0-9_-]{43})(?:;|$)
+RewriteCond {{ROOT}}/devices/%1 -f
+RewriteRule ^ - [L]
+
+# Al het andere: niet geregistreerd (of ingetrokken).
+RewriteRule ^ - [F]

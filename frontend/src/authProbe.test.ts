@@ -3,27 +3,27 @@ import { probeAuth } from './authProbe'
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn())
-  vi.stubGlobal('location', { ...window.location, reload: vi.fn() })
+  vi.stubGlobal('location', { ...window.location, assign: vi.fn() })
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('reloads the page when the credential has been revoked', async () => {
-  vi.mocked(fetch).mockResolvedValue({ status: 401 } as Response)
+test('sends the device to the enrolment page when its key is missing or revoked', async () => {
+  vi.mocked(fetch).mockResolvedValue({ status: 403 } as Response)
 
   await probeAuth()
 
-  expect(location.reload).toHaveBeenCalledOnce()
+  expect(location.assign).toHaveBeenCalledExactlyOnceWith('/enrol/')
 })
 
-test('does nothing when the credential still works', async () => {
+test('does nothing when the key still works', async () => {
   vi.mocked(fetch).mockResolvedValue({ status: 200 } as Response)
 
   await probeAuth()
 
-  expect(location.reload).not.toHaveBeenCalled()
+  expect(location.assign).not.toHaveBeenCalled()
 })
 
 test('does nothing when the probe itself fails to reach the network', async () => {
@@ -31,5 +31,5 @@ test('does nothing when the probe itself fails to reach the network', async () =
 
   await probeAuth()
 
-  expect(location.reload).not.toHaveBeenCalled()
+  expect(location.assign).not.toHaveBeenCalled()
 })
