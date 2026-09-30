@@ -25,3 +25,13 @@ The owner's "no public internet exposure" line was sharpened for this decision t
 - **Peer Relay and `tailscale serve` stay off on the NAS.** Both have reports of memory or CPU cost on small devices. `tailscaled`'s memory on the DS120j is unmeasured and is part of the device test, against the ~186 MB free.
 - **Losing a device is two removals**: the machine in Tailscale's admin console, and its credential on the NAS.
 - **Remote throughput is the home uplink's, not a design choice.** Userspace WireGuard on an 800 MHz A3720, direct or via DERP, is unmeasured; whether a 20 MB clip is watchable away from home is part of the test, not a reason to wait.
+
+## Amendment, 2026-09-30: the bet holds
+
+The one untested behaviour this ADR rested on was measured, on the household's own devices ([issue #56](https://github.com/marcovandehaar/rememberwhen/issues/56)). The NAS does forward traffic to its own LAN address as a userspace subnet router, so **the Cloudflare fallback is not needed**.
+
+- **Setup that was used:** the Synology Package Center's Tailscale package (1.58.2 on DSM 7.4.1, so it is listed for this model), signed in under one account, key expiry disabled for the NAS, and `tailscale set --advertise-routes=<nas-lan-ip>/32` run once with `sudo`, then approved in the admin console. The DSM package runs without root, so setting prefs needs `sudo` (or `--operator`) — the CLI refuses otherwise.
+- **The result:** an iPhone on **5G with Wi-Fi off**, Tailscale connected, opened `https://nas.vandehaar.dev/` and received the gated page, a cookie, a `fetch()` with `200`, and an `<img>`. The private address is unreachable from cellular without the tunnel, so this route is what carried it. Same name, same certificate, same origin as at home, as designed.
+- **Memory:** `tailscaled` sits at about **26–31 MB** resident with the NAS still showing about **210 MB available**, against the ~186 MB feared. The 512 MB box copes.
+
+Still unmeasured, and carried on issue #56: video and range requests and throughput away from home, the overlap trap on a foreign network that uses the home's own address range (the home LAN is on a very common consumer range, so this matters), the split-DNS entry, VPN On Demand on the iPads, and Android at home.
