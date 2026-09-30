@@ -1,6 +1,6 @@
 # The app is served from the NAS, so the media is same-site
 
-The PWA is served by Web Station on `https://nas.vandehaar.dev`, the same origin as the `Media Item`s and the catalogue. Access is gated by HTTP Basic authentication in a `.htaccess` file on the web root, one credential per device, on Web Station's Apache 2.4 back-end. There is no application code in the authorization path.
+The PWA is served by Web Station on `https://nas.vandehaar.dev`, the same origin as the `Media Item`s and the catalogue. Access is gated by HTTP Basic authentication in a `.htaccess` file on the web root, one credential per device, on Web Station's Apache 2.4 back-end. There is no application code in the authorization path. *(The credential half has since been replaced: [ADR 0007](0007-each-device-carries-a-90-day-key-in-a-cookie.md) swaps Basic for a per-device 90-day cookie, because Safari forgets Basic on close. Everything about the same-site origin still stands.)*
 
 This reverses a choice that had already been made and acted on. Azure Static Web Apps was the assumed host, an app was created there, and the media spike was deployed to it and measured. The reversal has nothing to do with performance, cost, or the measurements — configuration B worked. It is forced by what Safari does to credentials on a cross-site subresource, established in [issue #13](https://github.com/marcovandehaar/rememberwhen/issues/13) and recorded in `docs/research/authorization-that-survives-img-and-video-in-safari.md`.
 
