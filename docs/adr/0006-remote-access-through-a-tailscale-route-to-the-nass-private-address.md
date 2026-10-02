@@ -35,3 +35,11 @@ The one untested behaviour this ADR rested on was measured, on the household's o
 - **Memory:** `tailscaled` sits at about **26–31 MB** resident with the NAS still showing about **210 MB available**, against the ~186 MB feared. The 512 MB box copes.
 
 Still unmeasured, and carried on issue #56: video and range requests and throughput away from home, the overlap trap on a foreign network that uses the home's own address range (the home LAN is on a very common consumer range, so this matters), the split-DNS entry, VPN On Demand on the iPads, and Android at home.
+
+## Amendment, 2026-10-02: on Windows and macOS the route also wins at home
+
+The iOS behaviour this ADR leans on ("at home the app does not depend on Tailscale, because iOS routes the directly-connected subnet out of the Wi-Fi interface") does **not** hold on Windows. There the `/32` route Tailscale installs is more specific than the home network's `/24`, so a PC that is on the home Wi-Fi *and* has Tailscale connected sends everything for the NAS through the tunnel: `Test-NetConnection <nas>:445` reported `InterfaceAlias: Tailscale`, with several GB already carried through the NAS's userspace `tailscaled` (SMB reads by the Indexer).
+
+It was costly, not just wasteful. `tailscaled` on the NAS grew from the 26–31 MB measured on 2026-09-30 to **131 MB**, available memory fell from ~210 MB to ~143 MB with ~490 MB swapped out, and reads from the share dropped out (the Indexer failed on a Source Folder with "image decoder cannot decode" while every file decoded fine on its own). After the PC stopped accepting routes (`tailscale set --accept-routes=false`), the same minutes showed 220 MB available, `tailscaled` at 46 MB and a load average of 0.05.
+
+So: on a Windows or macOS machine that lives at home, do not accept Tailscale's routes there (or keep Tailscale off at home). A machine that travels toggles it by hand, as already decided for the laptop. The Indexer now also retries a failed file read and names any file it finally skips, so one flaky read no longer fails a whole run.

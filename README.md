@@ -109,6 +109,7 @@ Wat er is ingesteld (en wat je opnieuw moet doen als je het ooit opnieuw opbouwt
 - **iPad / iPhone:** in de Tailscale-app de instelling *VPN On Demand* (te vinden in de instellingen van de app): Wi-Fi = **verbinden behalve op het thuis-wifi** (SSID toevoegen), mobiel = altijd aan. Thuis is de VPN dan uit, en de app hangt er thuis nooit van af.
 - **Android:** *Instellingen → Netwerk → VPN → Altijd-aan VPN* (met Tailscale).
 - **Laptop:** Tailscale aan- of uitzetten met de hand; hij gebruikt ook het VPN van je werk en je wilt nooit beide tegelijk.
+- **Windows/Mac thuis: let op.** Anders dan op iOS wint daar de `/32`-route van Tailscale het van het gewone thuisnetwerk. Staat Tailscale aan op een pc die thuis aan het wifi hangt, dan gaat **al het verkeer naar de NAS door de tunnel**, ook SMB (de Indexer leest zo je foto's). Dat is langzamer en belast de NAS: op 2 oktober 2026 liep `tailscaled` op de NAS door zulk verkeer op van 30 naar 131 MB en vielen er reads van de share weg. Thuis dus Tailscale **uit**, of op een vaste thuis-pc de route niet accepteren: `tailscale set --accept-routes=false` (terug: `=true`). Controle: `Test-NetConnection <adres-van-de-NAS> -Port 445` moet als `InterfaceAlias` je Wi-Fi of Ethernet tonen, niet `Tailscale`.
 
 Waarom Tailscale en niet de alternatieven (Cloudflare Tunnel, Synology VPN Server, WireGuard, ZeroTier): [ADR 0006](docs/adr/0006-remote-access-through-a-tailscale-route-to-the-nass-private-address.md) en [docs/research/remote-access-on-a-ds120j.md](docs/research/remote-access-on-a-ds120j.md).
 
@@ -143,6 +144,7 @@ Bewezen, op de eigen apparaten ([issue #56](https://github.com/marcovandehaar/re
 | Thuis: certificaatwaarschuwing | Certificaat niet vernieuwd | [Runbook certificaat](docs/runbooks/nas-certificaat.md), "Als het misgaat" |
 | Onderweg: niets laadt | Tailscale staat uit, of de route is niet goedgekeurd, of overlappende reeks | Staat Tailscale aan op het apparaat? Route goedgekeurd? Zie "overlap-valkuil" |
 | Onderweg werkte het, nu niet meer | Key expiry (na 180 dagen) | Opnieuw inloggen op dat apparaat en key expiry uitzetten |
+| Thuis, vanaf een pc: de NAS is traag of de Indexer krijgt leesfouten ("image decoder cannot decode") | Tailscale staat aan op die pc en stuurt het NAS-verkeer door de tunnel | Tailscale uit, of `tailscale set --accept-routes=false`; zie "Windows/Mac thuis" hierboven |
 | Eén apparaat krijgt de aanmeldpagina | 90 dagen ongebruikt, gewist, of ingetrokken | Opnieuw koppelen ([runbook apparaten](docs/runbooks/apparaten.md)) |
 | Iedereen krijgt de aanmeldpagina of een 403 | `.htaccess` stuk of weg | `.htaccess.basic-backup` terugzetten, zoek dan de oorzaak |
 | Alles geeft een 500 | `mod_rewrite` niet geladen (na een Apache-update) | Bedoeld gedrag: luid falen. Module weer aan, de drempel niet omzeilen |
