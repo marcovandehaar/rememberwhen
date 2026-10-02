@@ -254,6 +254,72 @@ public class CatalogStoreTests : IDisposable
         Assert.Equal(["b-c1-0000-z-story.jpg"], Directory.GetFiles(_root).Select(Path.GetFileName));
     }
 
+    // A Memory's id is its name's slug, and everything derived from it — the
+    // Chapter ids, Media Item ids, the media/ filenames those name, and the
+    // cover — carries it as a leading prefix. Renaming (a mistyped year, say)
+    // is therefore one prefix swap, with no rescan and no lost curation.
+    [Fact]
+    public void Renaming_a_memory_rekeys_every_id_and_media_ref_and_keeps_its_place()
+    {
+        var catalog = new RwCatalog { Memories = [Memory("zzz"), TwoItemMemory(), Memory("yyy")] };
+
+        var renamed = CatalogStore.RenameMemory(catalog, "a", "Beta 2014");
+
+        Assert.Equal(["zzz", "beta-2014", "yyy"], renamed.Memories.Select(m => m.Id));
+        var memory = renamed.Memories[1];
+        Assert.Equal("Beta 2014", memory.Name);
+        Assert.Equal("Ergens", memory.DestinationName);
+        Assert.Equal("media/beta-2014-c1-0000-x-thumb.jpg", memory.CoverImage);
+        var chapter = Assert.Single(memory.Chapters);
+        Assert.Equal("beta-2014-c1", chapter.Id);
+        Assert.Equal(["beta-2014-c1-0000-x", "beta-2014-c1-0001-y"], chapter.MediaItems.Select(i => i.Id));
+        Assert.Equal(["media/beta-2014-c1-0000-x-story.jpg", "media/beta-2014-c1-0001-y-story.jpg"], chapter.MediaItems.Select(i => i.MediaRef));
+    }
+
+    [Fact]
+    public void Renaming_to_a_name_with_the_same_slug_only_changes_the_displayed_name()
+    {
+        var catalog = new RwCatalog { Memories = [TwoItemMemory()] };
+
+        var renamed = CatalogStore.RenameMemory(catalog, "a", "A");
+
+        var memory = Assert.Single(renamed.Memories);
+        Assert.Equal("a", memory.Id);
+        Assert.Equal("A", memory.Name);
+        Assert.Equal("media/a-c1-0000-x-thumb.jpg", memory.CoverImage);
+    }
+
+    [Fact]
+    public void Renaming_media_files_moves_every_chapters_files_and_leaves_other_memories_alone()
+    {
+        var media = Path.Combine(_root, "media");
+        Directory.CreateDirectory(media);
+        foreach (var name in new[] { "a-c1-0000-x-story.jpg", "a-c1-0000-x-thumb.jpg", "a-c1-0001-y-story.jpg", "ab-c1-0000-z-story.jpg" })
+            File.WriteAllText(Path.Combine(media, name), name);
+
+        CatalogStore.RenameMediaFiles(media, TwoItemMemory(), "beta-2014");
+
+        Assert.Equal(
+            ["ab-c1-0000-z-story.jpg", "beta-2014-c1-0000-x-story.jpg", "beta-2014-c1-0000-x-thumb.jpg", "beta-2014-c1-0001-y-story.jpg"],
+            Directory.GetFiles(media).Select(f => Path.GetFileName(f)!).Order().ToArray());
+        Assert.Equal("a-c1-0000-x-story.jpg", File.ReadAllText(Path.Combine(media, "beta-2014-c1-0000-x-story.jpg")));
+    }
+
+    [Fact]
+    public void Renaming_media_files_onto_existing_files_fails_before_moving_anything()
+    {
+        var media = Path.Combine(_root, "media");
+        Directory.CreateDirectory(media);
+        foreach (var name in new[] { "a-c1-0000-x-story.jpg", "a-c1-0001-y-story.jpg", "beta-2014-c1-0001-y-story.jpg" })
+            File.WriteAllText(Path.Combine(media, name), name);
+
+        Assert.Throws<IOException>(() => CatalogStore.RenameMediaFiles(media, TwoItemMemory(), "beta-2014"));
+
+        Assert.Equal(
+            ["a-c1-0000-x-story.jpg", "a-c1-0001-y-story.jpg", "beta-2014-c1-0001-y-story.jpg"],
+            Directory.GetFiles(media).Select(f => Path.GetFileName(f)!).Order().ToArray());
+    }
+
     private static RwMemory TwoItemMemory() => Memory("a", chapters: [
         new RwChapter
         {

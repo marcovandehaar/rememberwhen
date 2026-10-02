@@ -512,6 +512,7 @@ function renderIndexedDetail(detail, folder) {
         <p class="detail-path">${folder.path}</p>
       </div>
       <div class="detail-actions">
+        <button type="button" class="button ghost small" id="rename-button" title="Wijzigt de naam van deze reis (bijv. een verkeerd jaar), zonder opnieuw te indexeren">Naam wijzigen</button>
         <button type="button" class="button ghost small" id="refresh-coordinate-button" title="Haalt de coördinaat opnieuw op uit de Gazetteer, zonder opnieuw te indexeren">Coördinaat vernieuwen</button>
         <button type="button" class="button ghost small" id="reindex-button">Herindexeren</button>
         <button type="button" class="button danger small" id="remove-folder-button">Verwijderen</button>
@@ -519,6 +520,7 @@ function renderIndexedDetail(detail, folder) {
     </div>
     ${reindexError ? `<p class="error" style="max-width:480px">Herindexeren mislukt: ${reindexError}</p>` : ''}
     ${reindexCancelled ? `<p class="hint" style="max-width:480px">Herindexeren geannuleerd; de bestaande foto's hierboven staan nog onveranderd.</p>` : ''}
+    <div id="name-editor"></div>
     <div id="coordinate-picker"></div>
     ${notices.length > 0 ? `
       <details class="notices">
@@ -584,6 +586,7 @@ function renderIndexedDetail(detail, folder) {
     grid.append(tile);
   }
 
+  document.getElementById('rename-button').addEventListener('click', () => openNameEditor(folder, idx.memoryName));
   document.getElementById('refresh-coordinate-button').addEventListener('click', () => openCoordinatePicker(folder, idx.destinationName));
   document.getElementById('reindex-button').addEventListener('click', () => reindexFolder(folder));
   document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
@@ -610,6 +613,52 @@ function openCoordinatePicker(folder, currentDestinationName) {
   box.querySelector('#cancel-coordinate-button').addEventListener('click', () => { box.innerHTML = ''; });
   box.querySelector('#apply-coordinate-button').addEventListener('click', (e) =>
     applyCoordinate(folder.path, input.value.trim(), e.currentTarget));
+}
+
+// Fixes a mistyped name in place (no rescan, so no lost curation). The
+// Memory's id and media filenames follow the new name; the old files already
+// published to the NAS stay there until removed by hand, and the new ones go
+// out with the next publish.
+function openNameEditor(folder, currentName) {
+  const box = document.getElementById('name-editor');
+  box.innerHTML = `
+    <div class="row" style="margin:8px 0">
+      <input type="text" id="memory-name-input" value="${currentName}" />
+      <button type="button" class="button small" id="apply-name-button">Opslaan</button>
+      <button type="button" class="button ghost small" id="cancel-name-button">Annuleren</button>
+    </div>
+    <p class="error" id="name-error" style="max-width:480px" hidden></p>
+  `;
+  const input = box.querySelector('#memory-name-input');
+  input.focus();
+  input.select();
+  box.querySelector('#cancel-name-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#apply-name-button').addEventListener('click', (e) =>
+    applyName(folder.path, input.value.trim(), currentName, e.currentTarget));
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-name-button').click(); });
+}
+
+async function applyName(path, memoryName, currentName, button) {
+  const errorEl = document.getElementById('name-error');
+  errorEl.hidden = true;
+  if (!memoryName) {
+    errorEl.textContent = 'Vul een Memory-naam in.';
+    errorEl.hidden = false;
+    return;
+  }
+  if (memoryName === currentName) {
+    document.getElementById('name-editor').innerHTML = '';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api('PUT', '/api/memories/name', { path, memoryName });
+    await loadFolders();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+    button.disabled = false;
+  }
 }
 
 async function applyCoordinate(path, destinationName, button) {
