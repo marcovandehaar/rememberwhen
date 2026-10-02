@@ -399,6 +399,59 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
 
+/* Closing is animated too (app.js adds .closing, then hides after the 120ms). */
+.sheet-overlay.closing { animation: fade-out 0.12s ease forwards; }
+.sheet-overlay.closing .sheet { animation: sheet-out 0.12s ease forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+
+/* ---- publish indicator (topbar) ---- */
+/* A status pill in the toolbar, like Safari's downloads button: a progress
+   ring plus a short label, always one click from the full log. */
+.deploy-indicator {
+  --tone: var(--accent);
+  --fraction: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--tone);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s ease, color 0.15s ease;
+  animation: indicator-in 0.15s ease;
+}
+@keyframes indicator-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+.deploy-indicator:hover { background: #dbe9fa; }
+.deploy-indicator svg { width: 20px; height: 20px; flex: none; }
+.deploy-indicator .ring-track,
+.deploy-indicator .ring-fill,
+.deploy-indicator .glyph { fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.deploy-indicator .ring-track { stroke: currentColor; opacity: 0.2; }
+.deploy-indicator .ring-fill {
+  stroke: currentColor;
+  stroke-dasharray: calc(var(--fraction) * 100) 100;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: stroke-dasharray 0.3s ease;
+}
+.deploy-indicator.indeterminate .ring-fill {
+  stroke-dasharray: 25 75;
+  animation: spin 0.9s linear infinite;
+}
+.deploy-indicator .glyph { stroke: currentColor; opacity: 0; }
+.deploy-indicator[data-state="stalled"] { --tone: var(--warn); background: var(--warn-dim); }
+.deploy-indicator[data-state="done"] { --tone: #1f8f3a; background: #eaf6ed; }
+.deploy-indicator[data-state="failed"] { --tone: var(--danger); background: #fdecee; }
+.deploy-indicator[data-state="done"] .ring-fill { stroke-dasharray: 100 100; }
+.deploy-indicator[data-state="done"] .glyph-check,
+.deploy-indicator[data-state="failed"] .glyph-alert { opacity: 1; }
+.deploy-indicator[data-state="failed"] .ring-fill { stroke-dasharray: 100 100; }
+
 .sheet-head {
   display: flex;
   align-items: center;

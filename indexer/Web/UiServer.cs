@@ -251,6 +251,11 @@ public static class UiServer
 
         app.MapPost("/api/deploy", () =>
         {
+            // A second click (another tab, a reloaded page) joins the publish
+            // already in flight instead of racing it onto the same NAS paths.
+            if (runs.Running(RunKinds.Deploy) is { } inFlight)
+                return Results.Json(new { runId = inFlight.Id }, JsonOptions.Default);
+
             var repoRoot = DeployRun.FindRepoRoot(configPath);
             var scriptPath = Path.Combine(repoRoot, "deploy-nas.ps1");
             if (!File.Exists(scriptPath))
@@ -360,7 +365,7 @@ public static class UiServer
                 {
                     try { File.Delete(pendingFilesJsonPath); } catch (IOException) { }
                 }
-            });
+            }, RunKinds.Deploy);
 
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);
         });
@@ -371,9 +376,12 @@ public static class UiServer
             if (run is null) return Results.NotFound(new ErrorResponse("Onbekende run."));
 
             return Results.Json(
-                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath, run.ProgressCurrent, run.ProgressTotal),
+                new RunView(run.Status, run.SnapshotLog(), run.Error, run.CatalogPath, run.ProgressCurrent, run.ProgressTotal, run.IdleSeconds),
                 JsonOptions.Default);
         });
+
+        app.MapGet("/api/deploy/active", () =>
+            Results.Json(new { runId = runs.Running(RunKinds.Deploy)?.Id }, JsonOptions.Default));
 
         app.MapPost("/api/runs/{id}/cancel", (string id) =>
         {
@@ -1003,4 +1011,4 @@ public sealed record PendingPublishView(bool HasPending);
 
 public sealed record RunView(
     RunStatus Status, List<string> Log, string? Error, string? CatalogPath,
-    int? ProgressCurrent, int? ProgressTotal);
+    int? ProgressCurrent, int? ProgressTotal, int IdleSeconds = 0);

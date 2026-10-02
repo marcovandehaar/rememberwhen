@@ -17,8 +17,20 @@ public sealed class RunState
     private readonly CancellationTokenSource _cts = new();
     private StreamWriter? _logFile;
 
+    private long _lastActivityTicks = DateTime.UtcNow.Ticks;
+
     public string Id { get; } = Guid.NewGuid().ToString("n");
+    public string Kind { get; init; } = RunKinds.Index;
     public RunStatus Status { get; private set; } = RunStatus.Running;
+
+    // Last time the run logged a line or moved its progress. A run that is
+    // still Running but hasn't touched either for a while is stuck (a hung
+    // ssh on the NAS looks exactly like that), and the UI says so rather
+    // than spinning forever as if all is well.
+    public int IdleSeconds =>
+        Status == RunStatus.Running
+            ? (int)TimeSpan.FromTicks(DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastActivityTicks)).TotalSeconds
+            : 0;
     public string? Error { get; private set; }
     public string? CatalogPath { get; private set; }
     public int? ProgressCurrent { get; private set; }
@@ -46,6 +58,7 @@ public sealed class RunState
 
     public void AppendLog(string line)
     {
+        Touch();
         lock (_gate)
         {
             _log.Add(line);
@@ -63,8 +76,11 @@ public sealed class RunState
         }
     }
 
+    private void Touch() => Interlocked.Exchange(ref _lastActivityTicks, DateTime.UtcNow.Ticks);
+
     public void SetProgress(int current, int total)
     {
+        Touch();
         ProgressCurrent = current;
         ProgressTotal = total;
     }
@@ -105,9 +121,9 @@ public sealed class RunTracker
 {
     private readonly ConcurrentDictionary<string, RunState> _runs = new();
 
-    public RunState Start(Action<RunState> body)
+    public RunState Start(Action<RunState> body, string kind = RunKinds.Index)
     {
-        var run = new RunState();
+        var run = new RunState { Kind = kind };
         _runs[run.Id] = run;
 
         Task.Run(() =>
@@ -130,6 +146,17 @@ public sealed class RunTracker
     }
 
     public RunState? Get(string id) => _runs.GetValueOrDefault(id);
+
+    // What a freshly loaded page asks for, since the browser forgets its own
+    // run ids on reload but the run itself keeps going server-side.
+    public RunState? Running(string kind) =>
+        _runs.Values.FirstOrDefault(r => r.Kind == kind && r.Status == RunStatus.Running);
+}
+
+public static class RunKinds
+{
+    public const string Index = "index";
+    public const string Deploy = "deploy";
 }
 
 public sealed class RunLogWriter(RunState run) : TextWriter

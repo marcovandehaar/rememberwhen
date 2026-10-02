@@ -80,9 +80,53 @@ $scp = $ssh + '-O'
 # errors into terminating ones — it does not look at a native exe's exit
 # code, so an ssh/scp call that actually failed would otherwise be silently
 # treated as success and the script would carry on regardless.
-function Invoke-Nas([string]$cmd) {
-  & ssh @ssh $target $cmd
-  if ($LASTEXITCODE -ne 0) { throw "ssh-commando mislukte (exit ${LASTEXITCODE}): $cmd" }
+#
+# Elke ssh/scp-aanroep loopt via Invoke-Native, met een harde timeout die wél
+# afdwingbaar is: ServerAlive* vangt een dode verbinding, maar niet een
+# commando dat verbonden blijft en nooit terugkomt (een `rm -f` die op de NAS
+# blijft hangen — 8+ minuten, ssh bleef gewoon wachten). Bij een timeout wordt
+# het proces gedood en één keer opnieuw geprobeerd; daarna faalt de run met een
+# duidelijke melding in plaats van eindeloos te blijven staan.
+function Invoke-Native([string]$exe, [string[]]$arguments, [int]$timeoutSec, [string]$what) {
+  $psi = [System.Diagnostics.ProcessStartInfo]::new($exe)
+  foreach ($a in $arguments) { $psi.ArgumentList.Add($a) }
+  $psi.UseShellExecute = $false
+  $p = [System.Diagnostics.Process]::Start($psi)
+  try {
+    if (-not $p.WaitForExit($timeoutSec * 1000)) {
+      try { $p.Kill($true) } catch { }
+      return @{ TimedOut = $true; ExitCode = -1 }
+    }
+    return @{ TimedOut = $false; ExitCode = $p.ExitCode }
+  } finally { $p.Dispose() }
+}
+
+function Invoke-WithRetry([scriptblock]$attempt, [string]$what) {
+  foreach ($try in 1..2) {
+    $r = & $attempt
+    if (-not $r.TimedOut) {
+      if ($r.ExitCode -ne 0) { throw "$what mislukte (exit $($r.ExitCode))" }
+      return
+    }
+    if ($try -eq 1) { Write-Host "Time-out bij $what — opnieuw proberen." -ForegroundColor Yellow }
+  }
+  throw "$what reageerde niet (twee keer een time-out) — is de NAS bereikbaar?"
+}
+
+function Invoke-Nas([string]$cmd, [int]$timeoutSec = 30) {
+  Invoke-WithRetry { Invoke-Native 'ssh' ($ssh + @($target, $cmd)) $timeoutSec } "ssh-commando '$cmd'"
+}
+
+# scp-timeout schaalt met de bestandsgrootte (video's), met een ruime ondergrens.
+# Na een time-out kan er een half bestand staan; daarom begint elke poging met
+# dezelfde rm -f als de eerste.
+function Copy-ToNas([System.IO.FileInfo]$file, [string]$remotePath) {
+  $timeout = 60 + [int][Math]::Ceiling($file.Length / 1MB * 2)
+  Invoke-WithRetry {
+    $rm = Invoke-Native 'ssh' ($ssh + @($target, "rm -f '$remotePath'")) 30
+    if ($rm.TimedOut -or $rm.ExitCode -ne 0) { return $rm }
+    Invoke-Native 'scp' ($scp + @($file.FullName, "${target}:$remotePath")) $timeout
+  } "scp naar $remotePath"
 }
 function Get-RelativePath([string]$root, [System.IO.FileInfo]$file) {
   $file.FullName.Substring($root.Length + 1).Replace('\', '/')
@@ -150,9 +194,7 @@ foreach ($entry in $entries) {
   # van een reeds bestaand bestand van een andere eigenaar (http) wel, maar
   # chmod erna niet.
   $remotePath = "$WebRoot/$(Get-RelativePath $source.Root $file)"
-  Invoke-Nas "rm -f '$remotePath'"
-  & scp @scp $file.FullName "${target}:$remotePath"
-  if ($LASTEXITCODE -ne 0) { throw "scp mislukte voor $remotePath (exit ${LASTEXITCODE})" }
+  Copy-ToNas $file $remotePath
   $allRemotePaths += $remotePath
 
   $done++

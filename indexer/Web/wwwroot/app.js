@@ -970,28 +970,86 @@ document.getElementById('test-nas-connection-button').addEventListener('click', 
 
 /* ============================================================= publiceren */
 
-// { runId, status, log, progressCurrent, progressTotal } — status stays
-// 'running'/'succeeded'/'failed'/'cancelled' after the run ends so the sheet
-// can show the final log instead of snapping back to the idle button; only
-// closing the sheet clears it.
+// { runId, status, log, progressCurrent, progressTotal, error, idleSeconds }
+// — one publish at a time, polled in the background whether or not the sheet
+// is open, so the topbar indicator (and a reopened sheet) always shows the
+// real state. status stays 'running'/'succeeded'/'failed'/'cancelled' after
+// the run ends until the user has seen it: a success fades out on its own,
+// a failure stays until the sheet has been opened and closed.
 let activeDeploy = null;
 
-const deployOverlay = document.getElementById('deploy-overlay');
+// The deploy script gives every NAS call a 30-60s hard timeout plus a retry,
+// so well past that and still silent means something is genuinely wrong.
+const DEPLOY_STALL_SECONDS = 60;
+const DEPLOY_SUCCESS_LINGER_MS = 6000;
 
-document.getElementById('open-deploy').addEventListener('click', () => {
+const deployOverlay = document.getElementById('deploy-overlay');
+const deployIndicator = document.getElementById('deploy-indicator');
+let deploySuccessTimer = null;
+
+function openDeployOverlay() {
+  clearTimeout(deploySuccessTimer);
+  deployOverlay.classList.remove('closing');
   deployOverlay.hidden = false;
   renderDeploy();
-});
+}
+
+document.getElementById('open-deploy').addEventListener('click', openDeployOverlay);
+deployIndicator.addEventListener('click', openDeployOverlay);
 document.getElementById('close-deploy').addEventListener('click', closeDeployOverlay);
 deployOverlay.addEventListener('click', (e) => { if (e.target === deployOverlay) closeDeployOverlay(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !deployOverlay.hidden) closeDeployOverlay();
+});
 
+// Closing never interrupts a running publish — it carries on behind the
+// indicator. Closing a finished one counts as having seen the result.
 function closeDeployOverlay() {
-  if (activeDeploy && activeDeploy.status === 'running') return; // Annuleren first, or wait it out
-  activeDeploy = null;
-  deployOverlay.hidden = true;
+  if (deployOverlay.hidden || deployOverlay.classList.contains('closing')) return;
+  if (activeDeploy && activeDeploy.status !== 'running') activeDeploy = null;
+
+  deployOverlay.classList.add('closing');
+  setTimeout(() => {
+    if (!deployOverlay.classList.contains('closing')) return; // reopened meanwhile
+    deployOverlay.hidden = true;
+    deployOverlay.classList.remove('closing');
+  }, 120);
+  renderDeploy();
+}
+
+function formatIdle(seconds) {
+  return seconds < 90 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
+}
+
+function deployIsStalled(deploy) {
+  return deploy.status === 'running' && (deploy.idleSeconds ?? 0) >= DEPLOY_STALL_SECONDS;
+}
+
+function renderDeployIndicator() {
+  const deploy = activeDeploy;
+  deployIndicator.hidden = deploy === null;
+  if (!deploy) return;
+
+  const hasProgress = deploy.progressTotal != null && deploy.progressTotal > 0;
+  const fraction = hasProgress ? deploy.progressCurrent / deploy.progressTotal : 0;
+
+  let state = 'running';
+  let label;
+  if (deploy.status === 'succeeded') { state = 'done'; label = 'Gepubliceerd'; }
+  else if (deploy.status === 'failed') { state = 'failed'; label = 'Publiceren mislukt'; }
+  else if (deployIsStalled(deploy)) { state = 'stalled'; label = `Geen reactie · ${formatIdle(deploy.idleSeconds)}`; }
+  else label = hasProgress ? `Publiceren ${deploy.progressCurrent}/${deploy.progressTotal}` : 'Publiceren…';
+
+  deployIndicator.dataset.state = state;
+  deployIndicator.classList.toggle('indeterminate', state === 'running' && !hasProgress);
+  deployIndicator.style.setProperty('--fraction', fraction.toFixed(3));
+  document.getElementById('deploy-indicator-label').textContent = label;
+  deployIndicator.setAttribute('aria-label', `${label} — klik voor details`);
 }
 
 function renderDeploy() {
+  renderDeployIndicator();
+
   const errorEl = document.getElementById('deploy-error');
   errorEl.hidden = true;
 
@@ -1009,7 +1067,11 @@ function renderDeploy() {
   const statusEl = document.getElementById('deploy-status');
   const cancelButton = document.getElementById('cancel-deploy-button');
   if (status === 'running') {
-    statusEl.innerHTML = '<span class="spinner"></span>Bezig met publiceren…';
+    if (deployIsStalled(activeDeploy)) {
+      statusEl.textContent = `Geen reactie sinds ${formatIdle(activeDeploy.idleSeconds)} — de NAS is mogelijk niet bereikbaar. Annuleren en opnieuw publiceren is veilig.`;
+    } else {
+      statusEl.innerHTML = '<span class="spinner"></span>Bezig met publiceren…';
+    }
     cancelButton.textContent = 'Annuleren';
     cancelButton.disabled = false;
   } else {
@@ -1020,7 +1082,19 @@ function renderDeploy() {
     else { statusEl.textContent = ''; errorEl.textContent = error; errorEl.hidden = false; }
   }
 
-  document.getElementById('deploy-log').textContent = log.join('\n');
+  const logEl = document.getElementById('deploy-log');
+  const stickToBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
+  logEl.textContent = log.join('\n');
+  if (stickToBottom) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function beginDeploy(runId) {
+  activeDeploy = {
+    runId, status: 'running', log: [], progressCurrent: null, progressTotal: null,
+    error: null, idleSeconds: 0, pollFailures: 0,
+  };
+  renderDeploy();
+  pollDeploy();
 }
 
 document.getElementById('start-deploy-button').addEventListener('click', async () => {
@@ -1028,9 +1102,7 @@ document.getElementById('start-deploy-button').addEventListener('click', async (
   errorEl.hidden = true;
   try {
     const { runId } = await api('POST', '/api/deploy');
-    activeDeploy = { runId, status: 'running', log: [], progressCurrent: null, progressTotal: null, error: null };
-    renderDeploy();
-    pollDeploy();
+    beginDeploy(runId);
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
@@ -1049,17 +1121,32 @@ document.getElementById('cancel-deploy-button').addEventListener('click', async 
   await api('POST', `/api/runs/${activeDeploy.runId}/cancel`);
 });
 
+function finishDeploy(deploy) {
+  renderDeploy();
+  loadFolders(); // a succeeded publish drains whatever was pending — flips the button back off
+
+  if (!deployOverlay.hidden) return; // being read — closing the sheet clears it
+  if (deploy.status === 'cancelled') { activeDeploy = null; renderDeploy(); return; }
+  if (deploy.status === 'succeeded') {
+    deploySuccessTimer = setTimeout(() => {
+      if (activeDeploy === deploy && deployOverlay.hidden) { activeDeploy = null; renderDeploy(); }
+    }, DEPLOY_SUCCESS_LINGER_MS);
+  }
+}
+
 async function pollDeploy() {
   const deploy = activeDeploy;
   if (!deploy || deploy.status !== 'running') return;
 
   try {
     const state = await api('GET', `/api/runs/${deploy.runId}`);
-    if (activeDeploy !== deploy) return; // sheet was closed/reopened meanwhile
+    if (activeDeploy !== deploy) return;
 
+    deploy.pollFailures = 0;
     deploy.log = state.log;
     deploy.progressCurrent = state.progressCurrent;
     deploy.progressTotal = state.progressTotal;
+    deploy.idleSeconds = state.idleSeconds;
 
     if (state.status === 'running') {
       renderDeploy();
@@ -1069,14 +1156,21 @@ async function pollDeploy() {
 
     deploy.status = state.status;
     deploy.error = state.error;
-    renderDeploy();
-    loadFolders(); // a succeeded publish drains whatever was pending — flips the button back off
+    finishDeploy(deploy);
   } catch (err) {
+    if (activeDeploy !== deploy) return;
+    // A blip (laptop sleep, server restarting) shouldn't declare a publish
+    // dead that is still running — only give up after a sustained outage.
+    if (++deploy.pollFailures < 8) { setTimeout(pollDeploy, 2000); return; }
     deploy.status = 'failed';
-    deploy.error = err.message;
-    renderDeploy();
+    deploy.error = `Verbinding met de Indexer verloren: ${err.message}`;
+    finishDeploy(deploy);
   }
 }
+
+// A reloaded page doesn't know its own run ids, but the publish keeps going
+// server-side — pick it back up so the indicator is there straight away.
+api('GET', '/api/deploy/active').then(({ runId }) => { if (runId && !activeDeploy) beginDeploy(runId); }).catch(() => {});
 
 loadFolders();
 // Eager, independent of the settings sheet: the index-folder flow's own
