@@ -49,7 +49,17 @@ public sealed class RunState
         lock (_gate)
         {
             _log.Add(line);
-            _logFile?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {line}");
+            try
+            {
+                _logFile?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {line}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The log lives on the NAS share, which can drop mid-run. The
+                // in-memory log (and the run itself) must outlive that.
+                _logFile = null;
+                _log.Add($"Logbestand niet meer bereikbaar, verder zonder: {ex.Message}");
+            }
         }
     }
 
