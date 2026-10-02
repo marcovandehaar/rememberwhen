@@ -102,16 +102,16 @@ public class IndexerConfigTests : IDisposable
     }
 
     [Fact]
-    public void Renaming_an_indexed_folder_keeps_its_destination_and_swaps_name_and_id()
+    public void Renaming_an_indexed_folder_changes_only_its_memory_name()
     {
         var config = new IndexerConfig();
         config.RecordIndexed("C:\\Photos\\Noorwegen 2014", "noorwegen-2010", "Noorwegen 2010", "Oslo");
 
-        config.RenameIndexed("C:\\Photos\\Noorwegen 2014", "noorwegen-2014", "Noorwegen 2014");
+        config.UpdateIndexedMemoryName("C:\\Photos\\Noorwegen 2014", "Noorwegen 2014");
 
         var indexed = Assert.Single(config.IndexedFolders);
-        Assert.Equal("noorwegen-2014", indexed.MemoryId);
         Assert.Equal("Noorwegen 2014", indexed.MemoryName);
+        Assert.Equal("noorwegen-2010", indexed.MemoryId);
         Assert.Equal("Oslo", indexed.DestinationName);
     }
 

@@ -3,7 +3,6 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using Indexer.Catalog;
-using Indexer.Curation;
 using Indexer.Config;
 using Indexer.Media;
 using Microsoft.AspNetCore.Builder;
@@ -515,12 +514,9 @@ public static class UiServer
         });
 
         // A mistyped Memory name (the year, say) is fixed in place: a full
-        // reindex would rescan every photo and undo any curation, and would
-        // leave the old name's media behind on the NAS as well. This swaps
-        // the name's id prefix through the catalogue, the media files, the
-        // config and the curation files, then queues the result for the
-        // next publish. (The old files already on the NAS stay there until
-        // someone removes them — deploy only ever adds.)
+        // reindex would rescan every photo and undo any curation. Only the
+        // displayed name changes (see CatalogStore.SetName), so this is
+        // instant and only catalog.json needs publishing.
         app.MapPut("/api/memories/name", (RenameMemoryRequest body) =>
         {
             var memoryName = body.MemoryName.Trim();
@@ -531,6 +527,7 @@ public static class UiServer
             var indexed = config.FindIndexed(body.Path);
             if (indexed is null) return Results.NotFound(new ErrorResponse("Deze map is nog niet geïndexeerd."));
 
+            // The same check a reindex under this name would hit later.
             var newMemoryId = Slug.From(memoryName);
             var collision = config.IndexedFolders.FirstOrDefault(f => f.MemoryId == newMemoryId && f.SourceFolder != body.Path);
             if (collision is not null)
@@ -538,35 +535,20 @@ public static class UiServer
                     $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolder}). Kies een andere Memory-naam."));
 
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
-            var mediaDir = Path.Combine(outputFolder, "media");
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
-            var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
 
             lock (CatalogStore.Gate) // #44
             {
                 var catalog = CatalogStore.Load(catalogPath);
                 var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
                 if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
-                if (newMemoryId != memory.Id && catalog.Memories.Any(m => m.Id == newMemoryId))
-                    return Results.BadRequest(new ErrorResponse($"'{memoryName}' is al in gebruik voor een andere Memory."));
 
-                try
-                {
-                    CatalogStore.RenameMediaFiles(mediaDir, memory, newMemoryId);
-                }
-                catch (IOException ex)
-                {
-                    return Results.BadRequest(new ErrorResponse($"Hernoemen mislukt: {ex.Message}"));
-                }
-
-                CatalogStore.Save(CatalogStore.RenameMemory(catalog, memory.Id, memoryName), catalogPath);
-                config.RenameIndexed(body.Path, newMemoryId, memoryName);
+                CatalogStore.Save(CatalogStore.SetName(catalog, memory.Id, memoryName), catalogPath);
+                config.UpdateIndexedMemoryName(body.Path, memoryName);
                 config.Save(configPath);
-                if (newMemoryId != memory.Id) RenameCurationFiles(curationFolder, memory.Id, newMemoryId);
 
                 var pendingPublishPath = PendingPublishPath(configPath);
-                var pending = PendingPublish.AddMemory(PendingPublish.Load(pendingPublishPath), newMemoryId);
-                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
+                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
 
                 return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
             }
@@ -860,10 +842,17 @@ public static class UiServer
 
     private static List<FolderView> BuildFolderViews(string configPath)
     {
-        var config = IndexerConfig.Load(configPath);
-        var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
-        var catalogPath = Path.Combine(outputFolder, "catalog.json");
-        var catalog = CatalogStore.Load(catalogPath);
+        // One snapshot: a handler that changes both (a rename, a reindex)
+        // holds this lock for its whole Load-mutate-Save, so reading the
+        // config outside it could pair the old config with the new catalogue
+        // and show an indexed folder as "Nog niet geïndexeerd".
+        IndexerConfig config;
+        RwCatalog catalog;
+        lock (CatalogStore.Gate)
+        {
+            config = IndexerConfig.Load(configPath);
+            catalog = CatalogStore.Load(Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json"));
+        }
 
         var views = config.SourceFolders.Select(path =>
         {
@@ -961,26 +950,6 @@ public static class UiServer
         Path.IsPathRooted(maybeRelative)
             ? maybeRelative
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, maybeRelative));
-
-    // Best-effort, like every other write to the Curation-folder: the
-    // standing decisions and the run log follow the Memory to its new id, but
-    // an unwritable folder must not undo a rename that has already happened.
-    private static void RenameCurationFiles(string curationFolder, string oldId, string newId)
-    {
-        (string From, string To)[] moves =
-        [
-            (CurationFile.PathFor(curationFolder, oldId), CurationFile.PathFor(curationFolder, newId)),
-            (Path.Combine(curationFolder, $"{oldId}.log"), Path.Combine(curationFolder, $"{newId}.log")),
-        ];
-        foreach (var (from, to) in moves)
-        {
-            try
-            {
-                if (File.Exists(from) && !File.Exists(to)) File.Move(from, to);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        }
-    }
 
     // Lives next to config.json — operator-local bookkeeping, not part of
     // the published output, same reasoning as config.json itself.

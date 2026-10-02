@@ -132,88 +132,28 @@ public static class CatalogStore
         return Replace(catalog, updatedMemory);
     }
 
-    // Re-keys a Memory under a new name without a rescan (a mistyped year,
-    // say). A Memory's id is its name's slug, and everything derived from it —
-    // Chapter ids, Media Item ids, the media/ filenames those name, the cover —
-    // carries it as a leading prefix, so this is one prefix swap. The files on
-    // disk follow with RenameMediaFiles. The Memory keeps its place in the
-    // catalogue.
-    public static RwCatalog RenameMemory(RwCatalog catalog, string memoryId, string newName)
+    // A mistyped name (the year, say) is fixed without a rescan. Only the
+    // displayed name changes: the Memory's id and its media filenames are
+    // internal (nobody sees them), and renaming hundreds of files on a NAS
+    // share is slow and means republishing every one of them. A later
+    // reindex under the new name re-keys them on its own.
+    public static RwCatalog SetName(RwCatalog catalog, string memoryId, string name)
     {
         var memory = catalog.Memories.First(m => m.Id == memoryId);
-        var newId = Slug.From(newName);
-
-        string SwapId(string value) =>
-            value.StartsWith($"{memoryId}-", StringComparison.Ordinal) ? newId + value[memoryId.Length..] : value;
-        string SwapRef(string value) =>
-            value.StartsWith($"media/{memoryId}-", StringComparison.Ordinal) ? "media/" + SwapId(value["media/".Length..]) : value;
-
-        var renamed = new RwMemory
+        var updatedMemory = new RwMemory
         {
-            Id = newId,
-            Name = newName,
+            Id = memory.Id,
+            Name = name,
             DestinationName = memory.DestinationName,
             DestinationCoordinate = memory.DestinationCoordinate,
-            CoverImage = SwapRef(memory.CoverImage),
-            Chapters =
-            [
-                .. memory.Chapters.Select(chapter => new RwChapter
-                {
-                    Id = SwapId(chapter.Id),
-                    Location = chapter.Location,
-                    MediaItems =
-                    [
-                        .. chapter.MediaItems.Select(item => new RwMediaItem
-                        {
-                            Id = SwapId(item.Id),
-                            MediaRef = SwapRef(item.MediaRef),
-                            Type = item.Type,
-                            CapturedAt = item.CapturedAt,
-                            StoryRect = item.StoryRect,
-                            ShotDuration = item.ShotDuration,
-                        }),
-                    ],
-                }),
-            ],
+            CoverImage = memory.CoverImage,
+            Chapters = memory.Chapters,
         };
-
         return new RwCatalog
         {
             SchemaVersion = catalog.SchemaVersion,
-            Memories = [.. catalog.Memories.Select(m => m.Id == memoryId ? renamed : m)],
+            Memories = [.. catalog.Memories.Select(m => m.Id == memoryId ? updatedMemory : m)],
         };
-    }
-
-    // The files half of RenameMemory: every derivative of a Chapter starts
-    // with its id, so each moves to the same name under the new Memory id.
-    // Checked up front, so a clash with files already there fails before a
-    // single file has moved; a failure part-way puts back what it moved.
-    public static void RenameMediaFiles(string mediaDir, RwMemory memory, string newMemoryId)
-    {
-        if (!Directory.Exists(mediaDir) || memory.Id == newMemoryId) return;
-
-        var moves = memory.Chapters
-            .SelectMany(chapter => Directory.GetFiles(mediaDir, $"{chapter.Id}-*"))
-            .Select(old => (Old: old, New: Path.Combine(mediaDir, newMemoryId + Path.GetFileName(old)[memory.Id.Length..])))
-            .ToList();
-
-        foreach (var move in moves)
-            if (File.Exists(move.New)) throw new IOException($"{Path.GetFileName(move.New)} bestaat al.");
-
-        var done = new List<(string Old, string New)>();
-        try
-        {
-            foreach (var move in moves)
-            {
-                File.Move(move.Old, move.New);
-                done.Add(move);
-            }
-        }
-        catch
-        {
-            foreach (var move in done) File.Move(move.New, move.Old);
-            throw;
-        }
     }
 
     // Only the framing changes — everything else about the item, and every

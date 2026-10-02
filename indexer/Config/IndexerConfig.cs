@@ -97,14 +97,11 @@ public sealed class IndexerConfig
         if (indexed is not null) indexed.DestinationName = destinationName;
     }
 
-    // Same folder, same indexed result, under a new Memory name (and the id
-    // that follows from it) — see CatalogStore.RenameMemory.
-    public void RenameIndexed(string sourceFolder, string memoryId, string memoryName)
+    // The Memory's id stays as it was (see CatalogStore.SetName).
+    public void UpdateIndexedMemoryName(string sourceFolder, string memoryName)
     {
         var indexed = FindIndexed(sourceFolder);
-        if (indexed is null) return;
-        indexed.MemoryId = memoryId;
-        indexed.MemoryName = memoryName;
+        if (indexed is not null) indexed.MemoryName = memoryName;
     }
 
     public void ForgetIndexed(string sourceFolder) =>
