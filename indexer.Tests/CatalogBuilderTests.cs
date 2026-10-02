@@ -389,4 +389,54 @@ public class CatalogBuilderTests : IDisposable
         foreach (var path in publishedBefore) Assert.True(File.Exists(path), $"{path} should have survived the cancelled reindex.");
         Assert.Equal(publishedBefore.Count, Directory.GetFiles(mediaDir).Length); // c's new file cleaned up, d's never wrote
     }
+
+    // A share drops a read now and then, and WIC reports that as "the image
+    // decoder cannot decode the image" without naming the file. One bad file
+    // used to sink a run of hundreds; it must be skipped, and named.
+    [Fact]
+    public void A_file_that_cannot_be_decoded_is_skipped_and_named_instead_of_failing_the_run()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
+        File.WriteAllBytes(Path.Combine(_sourceDir, "kapot.jpg"), [1, 2, 3, 4, 5]);
+
+        var log = new StringWriter();
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, log,
+            retryDelay: TimeSpan.Zero);
+
+        Assert.Equal(2, catalog.Memories[0].Chapters.Sum(chapter => chapter.MediaItems.Count));
+        Assert.Contains("kapot.jpg", log.ToString());
+    }
+
+    [Fact]
+    public void A_run_where_no_file_can_be_read_fails_and_says_so()
+    {
+        File.WriteAllBytes(Path.Combine(_sourceDir, "kapot1.jpg"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(_sourceDir, "kapot2.jpg"), [4, 5, 6]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => CatalogBuilder.Build(
+            _sourceDir, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null,
+            retryDelay: TimeSpan.Zero));
+        Assert.Contains("leesbaar", ex.Message);
+    }
+
+    [Fact]
+    public async Task A_read_that_fails_once_is_retried_and_the_file_still_makes_it_in()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
+
+        // Holds b.jpg open exclusively for a moment, then lets go while the
+        // builder is waiting out its first retry.
+        var blocked = new FileStream(Path.Combine(_sourceDir, "b.jpg"), FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = Task.Run(async () => { await Task.Delay(400); blocked.Dispose(); });
+
+        var log = new StringWriter();
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, log,
+            retryDelay: TimeSpan.FromMilliseconds(300));
+        await release;
+
+        Assert.Equal(2, catalog.Memories[0].Chapters.Sum(chapter => chapter.MediaItems.Count));
+        Assert.DoesNotContain("Overgeslagen", log.ToString());
+    }
 }

@@ -27,10 +27,14 @@ public static class CatalogBuilder
         // Empty/null: an HDR clip (#48) publishes unchanged, logged, rather
         // than blocking the run — same non-blocking spirit as every other
         // anomaly this builder handles.
-        string? ffmpegPath = null)
+        string? ffmpegPath = null,
+        // Base wait between attempts of a failing file read (multiplied by
+        // the attempt number); tests pass zero.
+        TimeSpan? retryDelay = null)
     {
         var memoryId = Slug.From(memoryName);
         log ??= Console.Out;
+        var delay = retryDelay ?? TimeSpan.FromSeconds(1);
 
         // Persists every line written to `log` for later inspection, in
         // addition to wherever the caller's own writer already sends it
@@ -67,14 +71,25 @@ public static class CatalogBuilder
         var stepsDone = 0;
 
         var read = new List<(MediaFile File, MediaKind Kind, MediaMetadata Metadata)>();
+        var skipped = new List<string>();
         foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var kind = file.IsVideo ? MediaKind.Video : MediaKind.Photo;
-            var metadata = kind == MediaKind.Video ? videoReader.Read(file.FullPath) : PhotoMetadataReader.Read(file.FullPath);
-            read.Add((file, kind, metadata));
+            if (TryWithRetry(
+                    () => kind == MediaKind.Video ? videoReader.Read(file.FullPath) : PhotoMetadataReader.Read(file.FullPath),
+                    file.RelativePath, delay, log, cancellationToken, out var metadata))
+                read.Add((file, kind, metadata));
+            else
+                skipped.Add(file.RelativePath);
             onProgress?.Invoke(++stepsDone, totalSteps);
         }
+
+        if (read.Count == 0)
+            throw new InvalidOperationException($"Geen enkel bestand in {sourceFolder} was leesbaar; zie de regels hierboven.");
+        if (read.All(entry => entry.Kind == MediaKind.Video))
+            throw new InvalidOperationException(
+                $"Geen enkele foto in {sourceFolder} was leesbaar: de cover is altijd een foto (CONTEXT.md: Memory).");
 
         var detection = AnomalyDetector.Detect(read
             .Select(entry => new AnomalyDetector.MediaFact(
@@ -164,20 +179,40 @@ public static class CatalogBuilder
                 var chapterId = $"{memoryId}-c{chapterNumber}";
                 var id = $"{chapterId}-{i:D4}-{Slug.From(Path.GetFileNameWithoutExtension(file.RelativePath))}";
 
-                var (mediaRef, shotDuration, isNew) = kind == MediaKind.Video
-                    ? PublishVideo(file, metadata, id, mediaDir, ffmpegPath, log)
-                    : PublishPhoto(file, metadata, id, mediaDir);
+                // The cover's pin thumbnail is part of the same attempt: a
+                // photo whose pixels won't decode can't be the cover either.
+                var isCover = i == coverIndex;
+                if (!TryWithRetry(() =>
+                    {
+                        var published = kind == MediaKind.Video
+                            ? PublishVideo(file, metadata, id, mediaDir, ffmpegPath, log)
+                            : PublishPhoto(file, metadata, id, mediaDir);
+                        string? thumb = null;
+                        var thumbIsNew = false;
+                        if (isCover)
+                        {
+                            var thumbPath = Path.Combine(mediaDir, $"{id}-thumb.jpg");
+                            thumbIsNew = !File.Exists(thumbPath);
+                            DerivativeGenerator.GeneratePinThumbnail(file.FullPath, thumbPath);
+                            thumb = thumbPath;
+                        }
+                        return (published, thumb, thumbIsNew);
+                    }, file.RelativePath, delay, log, cancellationToken, out var result))
+                {
+                    skipped.Add(file.RelativePath);
+                    if (isCover) coverIndex = ordered.FindIndex(i + 1, entry => entry.Kind == MediaKind.Photo);
+                    onProgress?.Invoke(++stepsDone, totalSteps);
+                    continue;
+                }
+
+                var (mediaRef, shotDuration, isNew) = result.published;
                 if (isNew) newlyWrittenFiles.Add(Path.Combine(outputFolder, mediaRef));
                 onProgress?.Invoke(++stepsDone, totalSteps);
 
-                if (i == coverIndex)
+                if (result.thumb is not null)
                 {
-                    var thumbFileName = $"{id}-thumb.jpg";
-                    var thumbPath = Path.Combine(mediaDir, thumbFileName);
-                    var thumbIsNew = !File.Exists(thumbPath);
-                    DerivativeGenerator.GeneratePinThumbnail(file.FullPath, thumbPath);
-                    if (thumbIsNew) newlyWrittenFiles.Add(thumbPath);
-                    coverImage = $"media/{thumbFileName}";
+                    if (result.thumbIsNew) newlyWrittenFiles.Add(result.thumb);
+                    coverImage = $"media/{id}-thumb.jpg";
                 }
 
                 chapterMediaItems.Add(new RwMediaItem
@@ -205,6 +240,13 @@ public static class CatalogBuilder
             throw;
         }
 
+        if (coverImage is null)
+            throw new InvalidOperationException(
+                $"Geen enkele foto in {sourceFolder} kon als cover worden gepubliceerd; zie de regels hierboven.");
+
+        if (skipped.Count > 0)
+            log.WriteLine($"Let op: {skipped.Count} bestand(en) overgeslagen en niet in deze Memory opgenomen: {string.Join(", ", skipped)}");
+
         var memory = new RwMemory
         {
             Id = memoryId,
@@ -216,6 +258,38 @@ public static class CatalogBuilder
         };
 
         return new RwCatalog { Memories = [memory] };
+    }
+
+    // A share drops a read now and then, and WIC reports that as "the image
+    // decoder cannot decode the image" without ever naming the file — so one
+    // hiccup used to fail a run of hundreds, with nothing to say where.
+    // Retrying costs seconds; a file that still won't read after a few
+    // attempts is skipped and named, in the same non-blocking spirit as every
+    // other anomaly here, instead of sinking the run.
+    private const int ReadAttempts = 3;
+
+    private static bool TryWithRetry<T>(Func<T> action, string relativePath, TimeSpan delay, TextWriter log,
+        CancellationToken cancellationToken, out T result)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                result = action();
+                return true;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                if (attempt == ReadAttempts)
+                {
+                    log.WriteLine($"Overgeslagen (onleesbaar na {ReadAttempts} pogingen): {relativePath} — {ex.Message}");
+                    result = default!;
+                    return false;
+                }
+                Thread.Sleep(delay * attempt);
+            }
+        }
     }
 
     private static (string MediaRef, double ShotDuration, bool IsNew) PublishPhoto(MediaFile file, MediaMetadata metadata, string id, string mediaDir)

@@ -67,9 +67,14 @@ public static class DerivativeGenerator
         var encoder = new JpegBitmapEncoder { QualityLevel = Quality };
         encoder.Frames.Add(BitmapFrame.Create(resized));
 
+        // Encoded in memory first: the pixels are only really decoded here, so
+        // a bad source throws now, and must not leave behind (or overwrite a
+        // good published copy with) a half-written file.
+        using var buffer = new MemoryStream();
+        encoder.Save(buffer);
+
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        using var stream = File.Create(outputPath);
-        encoder.Save(stream);
+        File.WriteAllBytes(outputPath, buffer.ToArray());
     }
 
     // IgnoreImageCache: WPF's imaging pipeline otherwise caches a decoded
