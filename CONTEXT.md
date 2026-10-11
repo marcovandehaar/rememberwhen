@@ -5,15 +5,19 @@ An iPad-first cinematic memory experience built on top of a pre-composed media i
 ## Language
 
 **Memory**:
-One trip, as a person would recall it: `Denemarken 2024`, `Zillertal 2026`. The top-level unit the app presents. Two visits to the same place are two separate Memories. Its own name is distinct from its Destination's name (`Zillertal 2026` the trip, `Zillertal` the headline place) and never collapses into it. Its cover image — the photo shown on its globe pin — defaults to its earliest Media Item; the operator may override the choice during indexing.
-_Avoid_: Vakantie, Trip, Holiday, Album
+Something that happened, as a person would recall it: `Denemarken 2024`, `Zillertal 2026`, `Onze nieuwe hond`. The top-level unit the app presents. Two visits to the same place are two separate Memories. It draws its Media Items from one or more Source Folders. Its date defaults to the date of its earliest Media Item and the operator may override it; the date's year is the year the Memory belongs to, so a Memory spanning New Year belongs to the year it began. Its cover image defaults to its earliest Media Item; the operator may override the choice during indexing.
+_Avoid_: Vakantie, Holiday, Album, Event
+
+**Trip**:
+A Memory that has a Destination. Not a separate kind: a Memory becomes a Trip by being given a Destination, and stops being one by losing it. Only Trips appear on the globe. A Trip's own name is distinct from its Destination's name (`Zillertal 2026` the Trip, `Zillertal` the headline place) and never collapses into it.
+_Avoid_: Vakantie, Holiday, Journey
 
 **Chapter**:
 A part of a Memory: one continuous stay in one place. `Legoland Billund` spanning two days is a single Chapter; a day split between two towns is two. The place is a property of the Chapter, not of its Media Items: a Chapter has a location as soon as any of its Media Items carries GPS, and a Media Item never carries one of its own.
 _Avoid_: Day, Dag, Etappe, Leg, Scene, Segment
 
 **Destination**:
-The chosen headline location of a Memory, and the label under which it appears on the globe. May name a town, region, park, or country (`Zillertal`, `Disneyland Parijs`, `Italië`, `Zuid-Duitsland`). Its name is chosen during indexing, and its coordinate follows from that name via the Gazetteer. Where Media Items carry GPS, that GPS proposes the name and afterwards checks it; it does not place the pin.
+The chosen headline location of a Trip, and the label under which it appears on the globe. May name a town, region, park, or country (`Zillertal`, `Disneyland Parijs`, `Italië`, `Zuid-Duitsland`). Its name is chosen during indexing, and its coordinate follows from that name via the Gazetteer. Where Media Items carry GPS, that GPS proposes the name and afterwards checks it; it does not place the pin.
 _Avoid_: Main location, Hoofdlocatie, Place, Region
 
 **Media Item**:
@@ -21,7 +25,7 @@ One photo or one short video belonging to a Chapter. Videos are ordinary members
 _Avoid_: Asset, Photo, File
 
 **Story**:
-The playable form of a Memory: its Chapters and Media Items composed into one continuous sequence, moved through at the viewer's own pace. What the app presents once a Destination is chosen.
+The playable form of a Memory: its Chapters and Media Items composed into one continuous sequence, moved through at the viewer's own pace. What the app presents once a Memory is chosen, from the globe or from the timeline.
 _Avoid_: Slideshow, Presentation, Playback, Movie, Highlight reel
 
 **Source Folder**:
