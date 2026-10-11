@@ -3,6 +3,8 @@ import type { Catalog, Memory, MediaItem } from './catalog/types'
 import { Globe } from './globe/Globe'
 import { Story } from './story/Story'
 import { Lightbox } from './story/Lightbox'
+// PROTOTYPE (#58): title screen + way back, see TitleScreenPrototype.tsx.
+import { ArriveVeil, BackToTitle, TimelinePlaceholder, TitleScreenPrototype, type Mode } from './title/TitleScreenPrototype'
 
 // #30: the real Indexer publishes catalog.json (+ media/) to the webroot
 // root, alongside this app — see deploy-nas.ps1's -IndexerOutput.
@@ -10,6 +12,8 @@ const CATALOG_URL = '/catalog.json'
 
 function App() {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
+  const [mode, setMode] = useState<Mode | null>(null)
+  const [returningFrom, setReturningFrom] = useState<Mode | null>(null)
   const [selected, setSelected] = useState<Memory | null>(null)
   const [openItem, setOpenItem] = useState<{ item: MediaItem; startAt?: number } | null>(null)
 
@@ -24,16 +28,27 @@ function App() {
 
   if (!catalog) return null
 
-  const backToGlobe = () => {
+  if (!mode) {
+    return <TitleScreenPrototype memories={catalog.memories} returningFrom={returningFrom} onChoose={setMode} />
+  }
+
+  const backToMode = () => {
     setSelected(null)
     window.scrollTo(0, 0)
+  }
+  const backToTitle = () => {
+    setReturningFrom(mode)
+    setMode(null)
   }
 
   return (
     <>
-      {!selected && <Globe memories={catalog.memories} onSelect={setSelected} />}
+      {!selected && mode === 'globe' && <Globe memories={catalog.memories} onSelect={setSelected} />}
+      {!selected && mode === 'timeline' && <TimelinePlaceholder />}
+      {!selected && <BackToTitle onBack={backToTitle} light={mode === 'timeline'} />}
+      {!selected && <ArriveVeil key={mode} mode={mode} />}
       {selected && (
-        <Story memory={selected} onOpenItem={(item, startAt) => setOpenItem({ item, startAt })} onBack={backToGlobe} />
+        <Story memory={selected} onOpenItem={(item, startAt) => setOpenItem({ item, startAt })} onBack={backToMode} />
       )}
       {openItem && <Lightbox item={openItem.item} startAt={openItem.startAt} onClose={() => setOpenItem(null)} />}
     </>
