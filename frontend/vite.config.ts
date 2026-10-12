@@ -1,6 +1,8 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
-import { defineConfig, type Plugin } from 'vite'
+import { createReadStream, statSync } from 'node:fs'
+import { join, normalize } from 'node:path'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 
 // `npm run dev` has no NAS to fetch catalog.json from, so the app otherwise
 // renders a Globe with zero memories (a black screen). This serves a fixture
@@ -61,11 +63,59 @@ function placeholderImage(color: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
+// PROTOTYPE (#59): serve the real published catalogue and media, read-only,
+// from the Indexer's output folder — RW_CATALOG_DIR in frontend/.env.local
+// (gitignored, so the NAS path stays out of the repo). Dev server only.
+// Media gets byte ranges, which Safari needs for <video>.
+function devPublishedCatalog(dir: string): Plugin {
+  const types: Record<string, string> = { jpg: 'image/jpeg', mp4: 'video/mp4', mov: 'video/quicktime', json: 'application/json' }
+  const send = (file: string, req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+    let size: number
+    try {
+      size = statSync(file).size
+    } catch {
+      res.statusCode = 404
+      return res.end()
+    }
+    res.setHeader('Content-Type', types[file.split('.').pop()!.toLowerCase()] ?? 'application/octet-stream')
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Cache-Control', file.endsWith('.json') ? 'no-store' : 'max-age=3600')
+    const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range ?? '')
+    if (m) {
+      const start = m[1] ? Number(m[1]) : size - Number(m[2])
+      const end = m[1] && m[2] ? Number(m[2]) : size - 1
+      res.statusCode = 206
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
+      res.setHeader('Content-Length', end - start + 1)
+      return createReadStream(file, { start, end }).pipe(res)
+    }
+    res.setHeader('Content-Length', size)
+    createReadStream(file).pipe(res)
+  }
+  return {
+    name: 'dev-published-catalog',
+    configureServer(server) {
+      server.middlewares.use('/catalog.json', (req, res) => send(join(dir, 'catalog.json'), req, res))
+      server.middlewares.use('/media', (req, res) => {
+        const rel = normalize(decodeURIComponent((req.url ?? '').split('?')[0])).replace(/^[\\/]+/, '')
+        if (rel.startsWith('..')) {
+          res.statusCode = 403
+          return res.end()
+        }
+        send(join(dir, 'media', rel), req, res)
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), devCatalogFixture()],
+export default defineConfig(({ mode }) => {
+  const catalogDir = loadEnv(mode, process.cwd(), '').RW_CATALOG_DIR
+  return {
+  plugins: [react(), catalogDir ? devPublishedCatalog(catalogDir) : devCatalogFixture()],
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/setupTests.ts'],
   },
+  }
 })

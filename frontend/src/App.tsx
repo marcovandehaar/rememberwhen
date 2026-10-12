@@ -4,7 +4,9 @@ import { Globe } from './globe/Globe'
 import { Story } from './story/Story'
 import { Lightbox } from './story/Lightbox'
 // PROTOTYPE (#58): title screen + way back, see TitleScreenPrototype.tsx.
-import { ArriveVeil, BackToTitle, TimelinePlaceholder, TitleScreenPrototype, type Mode } from './title/TitleScreenPrototype'
+import { ArriveVeil, BackToTitle, TitleScreenPrototype, type Mode } from './title/TitleScreenPrototype'
+// PROTOTYPE (#59): the timeline mode, see TimelinePrototype.tsx.
+import { TimelinePrototype } from './timeline/TimelinePrototype'
 
 // #30: the real Indexer publishes catalog.json (+ media/) to the webroot
 // root, alongside this app — see deploy-nas.ps1's -IndexerOutput.
@@ -44,9 +46,9 @@ function App() {
   return (
     <>
       {!selected && mode === 'globe' && <Globe memories={catalog.memories} onSelect={setSelected} />}
-      {!selected && mode === 'timeline' && <TimelinePlaceholder />}
+      {mode === 'timeline' && <TimelinePrototype memories={catalog.memories} hidden={!!selected} onOpen={setSelected} />}
       {!selected && <BackToTitle onBack={backToTitle} light={mode === 'timeline'} />}
-      {!selected && <ArriveVeil key={mode} mode={mode} />}
+      <ArriveVeil key={mode} mode={mode} />
       {selected && (
         <Story memory={selected} onOpenItem={(item, startAt) => setOpenItem({ item, startAt })} onBack={backToMode} />
       )}
