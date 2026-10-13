@@ -117,8 +117,8 @@ public class PendingPublishTests : IDisposable
     {
         Id = id,
         Name = id,
-        DestinationName = "Ergens",
-        DestinationCoordinate = new Coordinate(0, 0),
+        Destination = new RwDestination("Ergens", new Coordinate(0, 0)),
+        Date = new DateOnly(2016, 7, 1),
         CoverImage = "media/cover.jpg",
         Chapters = chapters,
     };

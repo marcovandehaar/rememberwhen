@@ -1,15 +1,21 @@
 import { expect, test } from 'vitest'
 import { latestCapturedAt, nearestPin, pinsFor, type Pin } from './pins'
-import type { Memory } from '../catalog/types'
+import type { Coordinate, Memory } from '../catalog/types'
 
 function pin(destinationName: string, lat: number, lng: number): Pin {
   return { destinationName, lat, lng, cover: `${destinationName}.jpg`, memories: [] }
 }
 
-function memory(overrides: Partial<Memory> & Pick<Memory, 'id' | 'destinationName' | 'coverImage'>): Memory {
+type MemoryOverrides = Partial<Omit<Memory, 'destination'>> &
+  Pick<Memory, 'id' | 'coverImage'> & { destinationName?: string; destinationCoordinate?: Coordinate }
+
+function memory({ destinationName, destinationCoordinate, ...overrides }: MemoryOverrides): Memory {
   return {
     name: overrides.id,
-    destinationCoordinate: { lat: 51.5, lon: 3.8 },
+    date: '2016-07-01',
+    destination: destinationName
+      ? { name: destinationName, coordinate: destinationCoordinate ?? { lat: 51.5, lon: 3.8 } }
+      : null,
     chapters: [],
     ...overrides,
   }
@@ -121,4 +127,14 @@ test('nearestPin picks the closer of two candidates in the same direction', () =
   const far = pin('Far', 50, 10)
 
   expect(nearestPin([current, near, far], current, 'east')?.destinationName).toBe('Near')
+})
+
+test('a Memory without a Destination is not a Trip and gets no pin', () => {
+  const trip = memory({ id: 'a', destinationName: 'Zeeland', coverImage: 'a.jpg' })
+  const plain = memory({ id: 'b', coverImage: 'b.jpg' })
+
+  const pins = pinsFor([trip, plain])
+
+  expect(pins.map((p) => p.destinationName)).toEqual(['Zeeland'])
+  expect(pins[0].memories).toEqual([trip])
 })

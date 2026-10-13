@@ -84,8 +84,8 @@ public static class CatalogStore
         {
             Id = memory.Id,
             Name = memory.Name,
-            DestinationName = memory.DestinationName,
-            DestinationCoordinate = memory.DestinationCoordinate,
+            Destination = memory.Destination,
+            Date = memory.Date,
             CoverImage = memory.CoverImage,
             Chapters = [.. memory.Chapters.Where(c => c.Id != chapter.Id), updatedChapter],
         };
@@ -104,8 +104,8 @@ public static class CatalogStore
         {
             Id = memory.Id,
             Name = memory.Name,
-            DestinationName = memory.DestinationName,
-            DestinationCoordinate = memory.DestinationCoordinate,
+            Destination = memory.Destination,
+            Date = memory.Date,
             CoverImage = coverImage,
             Chapters = memory.Chapters,
         };
@@ -124,8 +124,8 @@ public static class CatalogStore
         {
             Id = memory.Id,
             Name = memory.Name,
-            DestinationName = destinationName,
-            DestinationCoordinate = coordinate,
+            Destination = new RwDestination(destinationName, coordinate),
+            Date = memory.Date,
             CoverImage = memory.CoverImage,
             Chapters = memory.Chapters,
         };
@@ -144,8 +144,8 @@ public static class CatalogStore
         {
             Id = memory.Id,
             Name = name,
-            DestinationName = memory.DestinationName,
-            DestinationCoordinate = memory.DestinationCoordinate,
+            Destination = memory.Destination,
+            Date = memory.Date,
             CoverImage = memory.CoverImage,
             Chapters = memory.Chapters,
         };
@@ -183,8 +183,8 @@ public static class CatalogStore
         {
             Id = memory.Id,
             Name = memory.Name,
-            DestinationName = memory.DestinationName,
-            DestinationCoordinate = memory.DestinationCoordinate,
+            Destination = memory.Destination,
+            Date = memory.Date,
             CoverImage = memory.CoverImage,
             Chapters = [.. memory.Chapters.Select(c => c.Id == chapter.Id ? updatedChapter : c)],
         };

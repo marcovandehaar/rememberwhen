@@ -11,8 +11,8 @@ function item(id: string, capturedAt: string | null) {
 const memory: Memory = {
   id: 'zeeland-2016',
   name: 'Zeeland 2016',
-  destinationName: 'Zeeland',
-  destinationCoordinate: { lat: 51.5, lon: 3.8 },
+  destination: { name: 'Zeeland', coordinate: { lat: 51.5, lon: 3.8 } },
+  date: '2016-07-01',
   coverImage: 'cover.jpg',
   chapters: [
     {

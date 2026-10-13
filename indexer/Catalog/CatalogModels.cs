@@ -1,9 +1,12 @@
 namespace Indexer.Catalog;
 
-// docs/v1-build-spec.md §2 — the contract the frontend reads. Additive only.
+// docs/v1-build-spec.md §2 — the contract the frontend reads. Additive only,
+// except at a schemaVersion bump, which ships with a matching frontend.
 public sealed class RwCatalog
 {
-    public int SchemaVersion { get; init; } = 1;
+    public const int CurrentSchemaVersion = 2;
+
+    public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public List<RwMemory> Memories { get; init; } = [];
 }
 
@@ -11,11 +14,17 @@ public sealed class RwMemory
 {
     public required string Id { get; init; }
     public required string Name { get; init; }
-    public required string DestinationName { get; init; }
-    public required Coordinate DestinationCoordinate { get; init; }
+
+    // A Memory with a Destination is a Trip; the globe shows only those.
+    public RwDestination? Destination { get; init; }
+
+    // The day the Memory began (its year is the year of this date). Always filled.
+    public required DateOnly Date { get; init; }
     public required string CoverImage { get; init; }
     public List<RwChapter> Chapters { get; init; } = [];
 }
+
+public sealed record RwDestination(string Name, Coordinate Coordinate);
 
 public sealed class RwChapter
 {

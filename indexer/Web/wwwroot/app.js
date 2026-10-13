@@ -1176,3 +1176,36 @@ loadFolders();
 // Eager, independent of the settings sheet: the index-folder flow's own
 // Destination-naam field needs suggestions without a detour through Settings.
 fetchGazetteerEntries().then(refreshDestinationNames);
+
+// A startup migration (catalogue V2, see CatalogMigrationV2) leaves a report
+// behind; show what it did until the operator dismisses it.
+function showMigrationBanner(report) {
+  const banner = document.getElementById('migration-banner');
+  const steps = report?.steps ?? [];
+  if (steps.length === 0) { banner.hidden = true; return; }
+
+  const failed = steps.find((step) => !step.succeeded);
+  const text = failed
+    ? `<p><strong>Migratie '${escapeHtml(failed.step)}' is mislukt</strong> bij '${escapeHtml(failed.failedAt)}': ${escapeHtml(failed.error)}</p>
+       <p>Herstel en herstart de Indexer om opnieuw te proberen; je originelen staan in de .pre-v2.bak-bestanden.</p>`
+    : steps.map((step) => `
+        <p><strong>Migratie '${escapeHtml(step.step)}' gelukt:</strong> ${step.memoryCount} Memories bijgewerkt.
+        Back-up: ${step.backups.map(escapeHtml).join(', ')}.</p>
+        ${step.fallbackDates.length === 0 ? '' : `<p>Geen opnametijd gevonden; de datum is een terugval (indexeerdatum van de map of de catalogus):</p>
+          <ul>${step.fallbackDates.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>`}`).join('');
+
+  banner.dataset.state = failed ? 'failed' : 'ok';
+  banner.innerHTML = `<div class="migration-text">${text}</div>
+    <button type="button" class="icon-button subtle" id="dismiss-migration" aria-label="Sluiten">${REMOVE_ICON}</button>`;
+  banner.hidden = false;
+  document.getElementById('dismiss-migration').addEventListener('click', async () => {
+    banner.hidden = true;
+    await api('DELETE', '/api/migration-report').catch(() => {});
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+api('GET', '/api/migration-report').then(showMigrationBanner).catch(() => {});

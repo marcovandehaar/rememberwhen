@@ -266,7 +266,7 @@ public class CatalogStoreTests : IDisposable
         Assert.Equal(["zzz", "a", "yyy"], renamed.Memories.Select(m => m.Id));
         var memory = renamed.Memories[1];
         Assert.Equal("Beta 2014", memory.Name);
-        Assert.Equal("Ergens", memory.DestinationName);
+        Assert.Equal("Ergens", memory.Destination!.Name);
         Assert.Equal("media/a-c1-0000-x-thumb.jpg", memory.CoverImage);
         Assert.Equal(["a-c1-0000-x", "a-c1-0001-y"], memory.Chapters.Single().MediaItems.Select(i => i.Id));
     }
@@ -296,8 +296,8 @@ public class CatalogStoreTests : IDisposable
     {
         Id = id,
         Name = name ?? id,
-        DestinationName = "Ergens",
-        DestinationCoordinate = new Coordinate(0, 0),
+        Destination = new RwDestination("Ergens", new Coordinate(0, 0)),
+        Date = new DateOnly(2016, 7, 1),
         CoverImage = coverImage ?? "media/cover.jpg",
         Chapters = chapters ?? [],
     };

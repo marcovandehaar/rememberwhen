@@ -37,8 +37,8 @@ public class CatalogBuilderTests : IDisposable
         var memory = Assert.Single(catalog.Memories);
         Assert.Equal("zeeland-2016", memory.Id);
         Assert.Equal("Zeeland 2016", memory.Name);
-        Assert.Equal("Zeeland", memory.DestinationName);
-        Assert.Equal(new Coordinate(51.5, 3.8), memory.DestinationCoordinate);
+        Assert.Equal("Zeeland", memory.Destination!.Name);
+        Assert.Equal(new Coordinate(51.5, 3.8), memory.Destination.Coordinate);
 
         var chapter = Assert.Single(memory.Chapters);
         Assert.Equal(2, chapter.MediaItems.Count);
@@ -190,6 +190,28 @@ public class CatalogBuilderTests : IDisposable
         var anomaly = curation.Anomalies["NIKON D50"];
         Assert.Equal(AnomalyHandling.UseMtime, anomaly.Handling);
         Assert.Equal(3, anomaly.AffectedFiles.Count);
+    }
+
+    [Fact]
+    public void A_memorys_date_is_its_earliest_capture_day_after_the_camera_clock_correction()
+    {
+        // Same Schotland 2010 case: the Nikon's raw EXIF says 2 January, but
+        // the corrected trip starts with the Sony on 1 August.
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony1.jpg"), 800, 600, new DateTime(2010, 8, 1, 9, 0, 0), camera: "SONY DSC-W70");
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony2.jpg"), 800, 600, new DateTime(2010, 8, 7, 9, 0, 0), camera: "SONY DSC-W70");
+
+        foreach (var name in new[] { "nikon1.jpg", "nikon2.jpg", "nikon3.jpg" })
+        {
+            var path = Path.Combine(_sourceDir, name);
+            TestImages.WriteJpeg(path, 800, 600, new DateTime(2010, 1, 2, 9, 0, 0), camera: "NIKON D50");
+            File.SetLastWriteTimeUtc(path, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
+        }
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
+
+        Assert.Equal(new DateOnly(2010, 8, 1), catalog.Memories[0].Date);
+        Assert.Equal(2, catalog.SchemaVersion);
     }
 
     [Fact]

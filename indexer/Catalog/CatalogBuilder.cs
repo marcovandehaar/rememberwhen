@@ -251,8 +251,10 @@ public static class CatalogBuilder
         {
             Id = memoryId,
             Name = memoryName,
-            DestinationName = destinationName,
-            DestinationCoordinate = destinationCoordinate,
+            Destination = new RwDestination(destinationName, destinationCoordinate),
+            // Corrected capture time, not the raw EXIF one: a reset camera
+            // clock would otherwise date the whole Memory months too early.
+            Date = DateOnly.FromDateTime(ordered[0].EffectiveCapturedAt.DateTime),
             CoverImage = coverImage!,
             Chapters = chapters,
         };

@@ -30,11 +30,18 @@ export type Chapter = {
   mediaItems: MediaItem[]
 }
 
+export type Destination = {
+  name: string
+  coordinate: Coordinate
+}
+
 export type Memory = {
   id: string
   name: string
-  destinationName: string
-  destinationCoordinate: Coordinate
+  /** A Memory with a Destination is a Trip; the globe shows only those. */
+  destination: Destination | null
+  /** The day the Memory began, yyyy-mm-dd; its year is the year of this date. */
+  date: string
   coverImage: string
   chapters: Chapter[]
 }

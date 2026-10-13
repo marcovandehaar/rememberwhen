@@ -53,13 +53,13 @@ De `Indexer` leest `Source Folder`s, stelt de structuur van elke `Memory` voor, 
 
 ## 2. Catalogus-contract (Indexer → frontend)
 
-Eén genest JSON-bestand, gepubliceerd door de `Indexer` naar de NAS. Startpunt, geen eindstaat — versieer en breid additief uit ([#24](https://github.com/marcovandehaar/rememberwhen/issues/24), [#12](https://github.com/marcovandehaar/rememberwhen/issues/12)).
+Eén genest JSON-bestand, gepubliceerd door de `Indexer` naar de NAS. Startpunt, geen eindstaat — versieer en breid additief uit ([#24](https://github.com/marcovandehaar/rememberwhen/issues/24), [#12](https://github.com/marcovandehaar/rememberwhen/issues/12)), behalve bij een `schemaVersion`-ophoging: die wordt samen met een passende frontend uitgerold en brengt een migratiestap mee (v2: [#73](https://github.com/marcovandehaar/rememberwhen/issues/73), [ADR 0008](adr/0008-nas-paths-stay-out-of-the-catalogue.md)).
 
 ```
 {
   schemaVersion,
   memories: [{
-    id, name, destinationName, destinationCoordinate, coverImage,
+    id, name, destination: { name, coordinate } | null, date, coverImage,
     chapters: [{
       id, location?,
       mediaItems: [{ id, mediaRef, type, capturedAt, storyRect, shotDuration }]
@@ -68,7 +68,9 @@ Eén genest JSON-bestand, gepubliceerd door de `Indexer` naar de NAS. Startpunt,
 }
 ```
 
-- `name` (de `Memory`) valt nooit samen met `destinationName`.
+- `name` (de `Memory`) valt nooit samen met `destination.name`.
+- `schemaVersion` is 2. `destination` is `null` voor een `Memory` die geen `Trip` is; de globe toont alleen `Memory`'s met een `destination`.
+- `date` (`yyyy-mm-dd`) is altijd gevuld: de vroegste opnamedag na de camera-klokcorrectie (`AnomalyDetector`). Het jaar van een `Memory` is het jaar van die datum. De catalogus-migratie leidt 'm af uit de vroegste `capturedAt` die al in de catalogus staat.
 - `storyRect` en `shotDuration` zijn v1 formulaïsch gevuld (afwisselende richting, lichte zoom, portrait/landscape verschillend behandeld) — saliency-gestuurde herberekening is een latere aanvulling op dezelfde velden, nooit een her-index.
 - Geen opsplitsing in meerdere bestanden nodig: de eenvoudige PWA/DS120j-defaults ([#21](https://github.com/marcovandehaar/rememberwhen/issues/21)) maken dat overbodig.
 

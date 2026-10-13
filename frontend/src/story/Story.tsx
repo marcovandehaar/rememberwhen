@@ -332,7 +332,7 @@ function CascadeTitle({ memory }: { memory: Memory }) {
             backdropFilter: 'blur(4px)',
           }}
         >
-          {memory.destinationName}
+          {memory.destination?.name}
         </motion.div>
         <motion.div
           initial="hidden"
@@ -377,7 +377,7 @@ function RevealTitle({ memory }: { memory: Memory }) {
     <div style={TITLE_SCRIM}>
       <div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.75, transition: { duration: 0.4 } }} style={TITLE_LABEL}>
-          {memory.destinationName}
+          {memory.destination?.name}
         </motion.div>
         <motion.div
           initial="hidden"

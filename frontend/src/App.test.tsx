@@ -6,8 +6,8 @@ import App from './App'
 // App's own job here is just "fetch the catalog and hand it to the globe" —
 // the globe's own rendering is Globe.tsx's concern, not App's.
 vi.mock('./globe/Globe', () => ({
-  Globe: ({ memories }: { memories: { destinationName: string }[] }) => (
-    <div data-testid="globe">{memories.map((m) => m.destinationName).join(',')}</div>
+  Globe: ({ memories }: { memories: { destination: { name: string } | null }[] }) => (
+    <div data-testid="globe">{memories.map((m) => m.destination?.name).join(',')}</div>
   ),
 }))
 
@@ -21,8 +21,8 @@ test('fetches the sample catalog and renders the globe with its destinations', a
     vi.fn().mockResolvedValue({
       json: () =>
         Promise.resolve({
-          schemaVersion: 1,
-          memories: [{ id: 'a', name: 'A', destinationName: 'Zeeland', destinationCoordinate: { lat: 1, lon: 2 }, coverImage: 'x.jpg', chapters: [] }],
+          schemaVersion: 2,
+          memories: [{ id: 'a', name: 'A', destination: { name: 'Zeeland', coordinate: { lat: 1, lon: 2 } }, date: '2026-01-01', coverImage: 'x.jpg', chapters: [] }],
         }),
     }),
   )

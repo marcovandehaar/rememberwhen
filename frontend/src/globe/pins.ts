@@ -30,17 +30,19 @@ export function latestCapturedAt(memory: Memory): number {
 export function pinsFor(memories: Memory[]): Pin[] {
   const byDestination = new Map<string, Memory[]>()
   for (const memory of memories) {
-    const group = byDestination.get(memory.destinationName)
+    if (!memory.destination) continue // not a Trip: nothing to pin
+    const group = byDestination.get(memory.destination.name)
     if (group) group.push(memory)
-    else byDestination.set(memory.destinationName, [memory])
+    else byDestination.set(memory.destination.name, [memory])
   }
 
   return [...byDestination.entries()].map(([destinationName, group]) => {
     const newest = group.reduce((a, b) => (latestCapturedAt(b) > latestCapturedAt(a) ? b : a))
+    const { coordinate } = newest.destination!
     return {
       destinationName,
-      lat: newest.destinationCoordinate.lat,
-      lng: newest.destinationCoordinate.lon,
+      lat: coordinate.lat,
+      lng: coordinate.lon,
       cover: newest.coverImage,
       memories: group,
     }

@@ -9,13 +9,13 @@ import { defineConfig, type Plugin } from 'vite'
 // deploy-nas.ps1 — it only exists while `vite dev` is running.
 function devCatalogFixture(): Plugin {
   const catalog = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     memories: [
       {
         id: 'm1',
         name: 'Toscane Roadtrip',
-        destinationName: 'Toscane, Italië',
-        destinationCoordinate: { lat: 43.77, lon: 11.25 },
+        destination: { name: 'Toscane, Italië', coordinate: { lat: 43.77, lon: 11.25 } },
+        date: '2026-06-01',
         coverImage: placeholderImage('#2a4d69'),
         chapters: [
           {
