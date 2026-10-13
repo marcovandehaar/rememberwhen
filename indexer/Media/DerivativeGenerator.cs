@@ -14,12 +14,14 @@ public static class DerivativeGenerator
 
     private static readonly string[] AlreadyJpeg = [".jpg", ".jpeg"];
 
-    // Skip-rule: a source already at or below the target width, and already
-    // JPEG, is served as-is rather than re-encoded.
+    // Skip-rule: a source already at or below the target width, already
+    // JPEG and already upright, is served as-is rather than re-encoded. A
+    // sideways one (EXIF orientation) is re-encoded so the pixels are upright
+    // and no viewer has to honour the tag. `sourceWidth` is the upright width.
     public static void GenerateStoryDerivative(string sourcePath, int sourceWidth, string outputPath)
     {
         var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
-        if (sourceWidth <= StoryWidth && AlreadyJpeg.Contains(extension))
+        if (sourceWidth <= StoryWidth && AlreadyJpeg.Contains(extension) && ExifOrientation.Read(sourcePath) == ExifOrientation.Upright)
         {
             File.Copy(sourcePath, outputPath, overwrite: true);
             return;
@@ -101,19 +103,7 @@ public static class DerivativeGenerator
     // this library has seen.
     private static BitmapSource ApplyExifOrientation(BitmapFrame frame)
     {
-        if (frame.Metadata is not BitmapMetadata metadata) return frame;
-
-        ushort orientation;
-        try
-        {
-            orientation = metadata.GetQuery("System.Photo.Orientation") is ushort o ? o : (ushort)1;
-        }
-        catch (NotSupportedException)
-        {
-            return frame; // format carries no EXIF (e.g. PNG) — nothing to apply
-        }
-
-        System.Windows.Media.Transform? rotation = orientation switch
+        System.Windows.Media.Transform? rotation = ExifOrientation.Read(frame) switch
         {
             3 => new System.Windows.Media.RotateTransform(180),
             6 => new System.Windows.Media.RotateTransform(90),

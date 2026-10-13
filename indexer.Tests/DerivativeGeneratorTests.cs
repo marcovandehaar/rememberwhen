@@ -39,6 +39,62 @@ public class DerivativeGeneratorTests : IDisposable
         Assert.Equal(800, result.Width);
     }
 
+
+    // The pixels as stored, ignoring any EXIF orientation tag: what a viewer
+    // that doesn't apply the tag would show.
+    private static (int Width, int Height) RawSize(string path)
+    {
+        var frame = System.Windows.Media.Imaging.BitmapDecoder.Create(
+            new Uri(path), System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreImageCache,
+            System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
+        return (frame.PixelWidth, frame.PixelHeight);
+    }
+
+    [Theory]
+    [InlineData((ushort)6)]
+    [InlineData((ushort)8)]
+    public void A_small_sideways_photo_is_stored_upright_instead_of_copied_as_is(ushort orientation)
+    {
+        TestImages.WriteJpeg(_source, width: 800, height: 600, orientation: orientation);
+
+        DerivativeGenerator.GenerateStoryDerivative(_source, sourceWidth: 600, _output);
+
+        Assert.Equal((600, 800), RawSize(_output));
+    }
+
+    [Theory]
+    [InlineData((ushort)6)]
+    [InlineData((ushort)8)]
+    public void A_large_sideways_photo_is_stored_upright(ushort orientation)
+    {
+        TestImages.WriteJpeg(_source, width: 4000, height: 3000, orientation: orientation);
+
+        DerivativeGenerator.GenerateStoryDerivative(_source, sourceWidth: 3000, _output);
+
+        Assert.Equal((DerivativeGenerator.StoryWidth, 2880), RawSize(_output));
+    }
+
+    [Theory]
+    [InlineData((ushort)6)]
+    [InlineData((ushort)8)]
+    public void The_pin_thumbnail_of_a_sideways_photo_is_upright(ushort orientation)
+    {
+        TestImages.WriteJpeg(_source, width: 800, height: 600, orientation: orientation);
+
+        DerivativeGenerator.GeneratePinThumbnail(_source, _output);
+
+        Assert.Equal((DerivativeGenerator.PinThumbnailWidth, 256), RawSize(_output));
+    }
+
+    [Fact]
+    public void A_photo_tagged_as_upright_is_still_copied_as_is()
+    {
+        TestImages.WriteJpeg(_source, width: 800, height: 600, orientation: 1);
+
+        DerivativeGenerator.GenerateStoryDerivative(_source, sourceWidth: 800, _output);
+
+        Assert.Equal(File.ReadAllBytes(_source), File.ReadAllBytes(_output));
+    }
     [Fact]
     public void Skip_rule_serves_a_small_jpeg_byte_for_byte()
     {

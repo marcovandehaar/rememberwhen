@@ -27,6 +27,27 @@ public class PhotoMetadataReaderTests
         }
     }
 
+    [Theory]
+    [InlineData((ushort)6)]
+    [InlineData((ushort)8)]
+    public void Reports_the_upright_dimensions_of_a_sideways_photo(ushort orientation)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.jpg");
+        TestImages.WriteJpeg(path, width: 400, height: 300, orientation: orientation);
+
+        try
+        {
+            var metadata = PhotoMetadataReader.Read(path);
+
+            Assert.Equal(300, metadata.Width);
+            Assert.Equal(400, metadata.Height);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Reports_no_capture_time_when_the_file_carries_none()
     {

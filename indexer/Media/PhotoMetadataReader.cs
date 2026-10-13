@@ -35,7 +35,13 @@ public static class PhotoMetadataReader
             camera = ReadCamera(metadata);
         }
 
-        return new MediaMetadata(frame.PixelWidth, frame.PixelHeight, capturedAt, Duration: null, gps, camera);
+        // Upright dimensions: the derivatives are baked upright (DerivativeGenerator),
+        // and the StoryRect is computed against what they show (#67).
+        var (width, height) = ExifOrientation.SwapsAxes(ExifOrientation.Read(frame))
+            ? (frame.PixelHeight, frame.PixelWidth)
+            : (frame.PixelWidth, frame.PixelHeight);
+
+        return new MediaMetadata(width, height, capturedAt, Duration: null, gps, camera);
     }
 
     // Manufacturer and model are separate EXIF tags; combined into one

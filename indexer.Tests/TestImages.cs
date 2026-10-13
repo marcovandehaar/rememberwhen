@@ -10,7 +10,8 @@ namespace Indexer.Tests;
 public static class TestImages
 {
     public static void WriteJpeg(
-        string path, int width, int height, DateTime? capturedAt = null, Coordinate? gps = null, string? camera = null)
+        string path, int width, int height, DateTime? capturedAt = null, Coordinate? gps = null, string? camera = null,
+        ushort? orientation = null)
     {
         var pixels = new byte[width * height * 3];
         var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Rgb24, null, pixels, width * 3);
@@ -24,6 +25,11 @@ public static class TestImages
         if (camera is { } model)
         {
             metadata.SetQuery("/app1/ifd/{ushort=272}", model);
+        }
+
+        if (orientation is { } exifOrientation)
+        {
+            metadata.SetQuery("/app1/ifd/{ushort=274}", exifOrientation);
         }
 
         if (gps is { } coordinate)
