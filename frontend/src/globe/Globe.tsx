@@ -3,6 +3,7 @@ import GlobeGL from 'react-globe.gl'
 import type { Memory } from '../catalog/types'
 import { PinChooser } from './PinChooser'
 import { pinsFor, type Pin } from './pins'
+import { EARTH_TEXTURES } from './textures'
 import { useViewportSize } from './useViewportSize'
 
 // Variant A (#7): photographic night earth, glowing cover-photo pin, no
@@ -11,10 +12,6 @@ import { useViewportSize } from './useViewportSize'
 // (ADR 0002). Opens on Europe; most Memories are there (#7).
 const HOME = { lat: 47, lng: 9, altitude: 0.78 }
 const ZOOM_ALTITUDE = 0.28
-const TEX = {
-  night: '//unpkg.com/three-globe/example/img/earth-night.jpg',
-  topology: '//unpkg.com/three-globe/example/img/earth-topology.png',
-}
 
 type GlobeInstance = {
   pointOfView: {
@@ -50,8 +47,8 @@ export function Globe({ memories, onSelect }: { memories: Memory[]; onSelect: (m
         width={width}
         height={height}
         onGlobeReady={() => ref.current?.pointOfView(HOME, 0)}
-        globeImageUrl={TEX.night}
-        bumpImageUrl={TEX.topology}
+        globeImageUrl={EARTH_TEXTURES.night}
+        bumpImageUrl={EARTH_TEXTURES.topology}
         backgroundColor="#04070f"
         showAtmosphere={false}
         htmlElementsData={pins}
