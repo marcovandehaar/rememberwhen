@@ -26,6 +26,7 @@ indexer/config.json
 # Publiceren-wachtrij: welke Indexer-output nog niet naar de NAS is — zie
 # PendingPublish.cs. Operator-lokale staat, net als config.json hierboven.
 indexer/pending-publish.json
+indexer/migration-v2.json
 
 ### Frontend (Vite)
 frontend/node_modules/

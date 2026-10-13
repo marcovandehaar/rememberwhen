@@ -26,6 +26,7 @@ public sealed class MigrationReport
 {
     public List<MigrationStepResult> Steps { get; init; } = [];
 
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool Failed => Steps.Any(s => !s.Succeeded);
 
     public static MigrationReport? Load(string path) =>
