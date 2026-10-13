@@ -1,0 +1,228 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway, for #61 "Indexer: Trips and Memories in one list".
+  Three variants of the Indexer's Memory list, switchable via ?variant=a|b|c
+  (or the bar at the bottom). Mock data, in memory only, no NAS, no server:
+  double-click the file, or open /prototype-memory-list.html on a running Indexer.
+  Model per #60: Memory = { name, destination?, dateOverride?, defaultDate,
+  needsReindex, sourceFolders[] }; a Trip is a Memory with a Destination.
+-->
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · Memory-lijst</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .proto-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 120px; }
+  .proto-top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .proto-top h1 { font-size: 22px; flex: 1; }
+  .btn { border: 1px solid var(--border); background: var(--panel); border-radius: var(--radius-sm); padding: 5px 12px; cursor: pointer; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.small { padding: 2px 8px; font-size: 13px; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .seg button { border: 0; background: var(--panel); padding: 5px 12px; cursor: pointer; }
+  .seg button.on { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+  .pin { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--accent); background: var(--accent-dim); border-radius: 99px; padding: 1px 8px; white-space: nowrap; }
+  .nopin { display: inline-flex; font-size: 12px; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 99px; padding: 0 8px; white-space: nowrap; }
+  .stale { display: inline-flex; font-size: 12px; color: var(--warn); background: var(--warn-dim); border-radius: 99px; padding: 1px 8px; white-space: nowrap; }
+  .dim { color: var(--text-dim); }
+  .override { color: var(--accent); }
+  .panel { background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .folders { list-style: none; margin: 4px 0; padding: 0; font-size: 13px; }
+  .folders li { display: flex; gap: 8px; align-items: center; padding: 2px 0; font-family: ui-monospace, Consolas, monospace; }
+  .folders li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shared { font-family: inherit; font-size: 11px; color: var(--text-dim); }
+  /* A */
+  .a-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+  .a-list { padding: 8px; max-height: 70vh; overflow: auto; }
+  .a-year { font-size: 12px; font-weight: 600; color: var(--text-dim); padding: 10px 8px 4px; }
+  .a-row { display: flex; gap: 8px; align-items: center; padding: 8px; border-radius: var(--radius-sm); cursor: pointer; }
+  .a-row:hover { background: var(--bg); }
+  .a-row.sel { background: var(--accent-dim); }
+  .a-row .n { flex: 1; }
+  .a-detail { padding: 20px; display: grid; gap: 16px; align-content: start; }
+  .a-field { display: grid; gap: 4px; }
+  .a-field label { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+  /* B */
+  table.b { width: 100%; border-collapse: collapse; }
+  table.b th { text-align: left; font-size: 12px; color: var(--text-dim); font-weight: 600; padding: 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  table.b td { padding: 10px; border-bottom: 1px solid var(--bg); vertical-align: top; }
+  table.b tr.open td { background: #fafafc; }
+  table.b .edit { cursor: pointer; border-bottom: 1px dashed var(--border); }
+  /* C */
+  .c-queue { padding: 12px 16px; margin-bottom: 16px; display: flex; gap: 12px; align-items: center; background: var(--warn-dim); }
+  .c-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .c-col h2 { font-size: 15px; margin: 0 0 8px; display: flex; gap: 8px; align-items: center; }
+  .c-card { padding: 12px 14px; margin-bottom: 10px; display: grid; gap: 6px; }
+  .c-card .t { display: flex; gap: 8px; align-items: baseline; }
+  .c-card .t b { flex: 1; }
+  .c-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* bar + state */
+  .proto-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; background: #1d1d1f; color: #fff; padding: 6px 8px 6px 14px; border-radius: 99px; box-shadow: var(--shadow-lg); font-size: 13px; z-index: 10; }
+  .proto-bar button { border: 0; border-radius: 99px; padding: 4px 12px; background: transparent; color: #fff; cursor: pointer; }
+  .proto-bar button.on { background: #fff; color: #1d1d1f; }
+  .proto-state { margin-top: 24px; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre; padding: 12px; overflow: auto; max-height: 240px; }
+  .proto-log { color: var(--accent); font-size: 13px; min-height: 20px; margin-top: 8px; }
+  @media (max-width: 760px) { .a-grid, .c-cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="proto-wrap">
+  <div class="proto-top">
+    <h1>Memories</h1>
+    <span id="filter"></span>
+    <button class="btn primary" onclick="act.newMemory()">+ Nieuwe Memory</button>
+  </div>
+  <div id="view"></div>
+  <div class="proto-log" id="log"></div>
+  <details><summary class="dim">State (PROTOTYPE)</summary><div class="panel proto-state" id="state"></div></details>
+</div>
+<div class="proto-bar">
+  <span>PROTOTYPE</span>
+  <button data-v="a">A · lijst + detail</button>
+  <button data-v="b">B · tabel</button>
+  <button data-v="c">C · Trips | Memories</button>
+</div>
+<script>
+const S = {
+  filter: 'all', selected: 'wintersport-2024', open: null, sort: 'date',
+  memories: [
+    { id: 'disneyland-parijs-2025', name: 'Disneyland Parijs 2025', destination: 'Disneyland Parijs', defaultDate: '2025-04-18', dateOverride: null, needsReindex: false, sourceFolders: ['\\\\nas\\Fotos\\2025\\4. Disneyland Paris'] },
+    { id: 'wintersport-2024', name: 'Wintersport 2024', destination: 'Zillertal', defaultDate: '2024-02-10', dateOverride: null, needsReindex: false, sourceFolders: ['\\\\nas\\Fotos\\2024\\2.februari\\wintersport'] },
+    { id: 'onze-nieuwe-hond', name: 'Onze nieuwe hond', destination: null, defaultDate: '2024-06-02', dateOverride: null, needsReindex: true, sourceFolders: ['\\\\nas\\Fotos\\2024\\6.juni\\Pip', '\\\\nas\\Fotos\\Telefoon Marco\\2024-06'] },
+    { id: 'krieghuusbelten-2024', name: 'Krieghuusbelten 2024', destination: 'Raalte', defaultDate: '2024-07-13', dateOverride: null, needsReindex: false, sourceFolders: ['\\\\nas\\Fotos\\2024\\7.juli\\Krieghuusbelten'] },
+    { id: 'zomer-2024', name: 'Zomer 2024', destination: null, defaultDate: '2024-07-01', dateOverride: null, needsReindex: false, sourceFolders: ['\\\\nas\\Fotos\\2024\\7.juli\\Krieghuusbelten', '\\\\nas\\Fotos\\2024\\8.augustus'] },
+    { id: 'kerst-2023', name: 'Kerst 2023', destination: null, defaultDate: '2024-01-02', dateOverride: '2023-12-24', needsReindex: false, sourceFolders: ['\\\\nas\\Fotos\\2023\\12.december'] },
+    { id: 'whistler-2013', name: 'Whistler 2013', destination: 'Whistler', defaultDate: '2013-02-03', dateOverride: null, needsReindex: false, sourceFolders: ['\\\\nas\\Fotos\\Canada 2013'] },
+  ],
+};
+const variant = new URLSearchParams(location.search).get('variant') || 'a';
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const dateOf = m => m.dateOverride || m.defaultDate;
+const fmt = d => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
+const usage = f => S.memories.filter(m => m.sourceFolders.includes(f)).length;
+const byId = id => S.memories.find(m => m.id === id);
+const visible = () => S.memories
+  .filter(m => S.filter === 'all' || (S.filter === 'trips') === !!m.destination)
+  .sort((x, y) => S.sort === 'name' ? x.name.localeCompare(y.name) : dateOf(y).localeCompare(dateOf(x)));
+const log = t => { $('#log').textContent = t; };
+
+const act = {
+  newMemory() {
+    const name = prompt('Naam van de Memory', 'Verjaardag Sanne 2025'); if (!name) return;
+    const folder = prompt('Eerste Source Folder', '\\\\nas\\Fotos\\2025\\9. September'); if (!folder) return;
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    S.memories.push({ id, name, destination: null, defaultDate: null, dateOverride: null, needsReindex: true, sourceFolders: [folder], neverIndexed: true });
+    S.selected = id; log(`"${name}" aangemaakt: nog niet geïndexeerd, dus nog niet in de catalogus.`); render();
+  },
+  addFolder(id) {
+    const f = prompt('Source Folder toevoegen', '\\\\nas\\Fotos\\2024\\8.augustus'); if (!f) return;
+    const m = byId(id); if (!m.sourceFolders.includes(f)) m.sourceFolders.push(f);
+    m.needsReindex = true; log(`Map toegevoegd aan "${m.name}": herindexeren nodig.`); render();
+  },
+  removeFolder(id, f) {
+    const m = byId(id); if (m.sourceFolders.length <= 1) return;
+    m.sourceFolders = m.sourceFolders.filter(x => x !== f); m.needsReindex = true;
+    log(`Map verwijderd uit "${m.name}": herindexeren nodig.`); render();
+  },
+  setDestination(id) {
+    const m = byId(id);
+    const d = prompt('Destination (leeg = geen Trip)', m.destination || ''); if (d === null) return;
+    m.destination = d.trim() || null;
+    log(m.destination ? `"${m.name}" is nu een Trip naar ${m.destination}: direct, zonder herindexeren.` : `"${m.name}" is geen Trip meer: direct.`); render();
+  },
+  setDate(id) {
+    const m = byId(id);
+    const d = prompt(`Datum (jjjj-mm-dd). Leeg = standaard (${m.defaultDate || 'na indexeren'})`, m.dateOverride || ''); if (d === null) return;
+    m.dateOverride = d.trim() || null; log(`Datum van "${m.name}" is nu ${dateOf(m) || '—'}: direct.`); render();
+  },
+  reindex(id) {
+    const m = byId(id); m.needsReindex = false;
+    if (!m.defaultDate) m.defaultDate = '2025-09-14';
+    m.neverIndexed = false; log(`"${m.name}" geïndexeerd (gesimuleerd).`); render();
+  },
+  reindexAll() { S.memories.filter(m => m.needsReindex).forEach(m => act.reindex(m.id)); },
+  remove(id) { const m = byId(id); if (!confirm(`"${m.name}" verwijderen?`)) return; S.memories = S.memories.filter(x => x !== m); log(`"${m.name}" verwijderd.`); render(); },
+};
+
+const kind = m => m.destination ? `<span class="pin">📍 ${esc(m.destination)}</span>` : `<span class="nopin">Memory</span>`;
+const stale = m => m.needsReindex ? `<span class="stale">${m.neverIndexed ? 'nog niet geïndexeerd' : 'herindexeren nodig'}</span>` : '';
+const dateCell = m => dateOf(m) ? `${fmt(dateOf(m))}${m.dateOverride ? ' <span class="override" title="handmatig">✎</span>' : ''}` : '<span class="dim">—</span>';
+const folderList = m => `<ul class="folders">${m.sourceFolders.map(f => `<li><span title="${esc(f)}">${esc(f)}</span>${usage(f) > 1 ? `<em class="shared">ook in ${usage(f) - 1} andere</em>` : ''}<button class="btn small" ${m.sourceFolders.length <= 1 ? 'disabled title="Er moet minstens één map overblijven"' : ''} onclick="act.removeFolder('${m.id}', ${esc(JSON.stringify(f))})">×</button></li>`).join('')}</ul>`;
+
+function filterSeg() {
+  const n = k => S.memories.filter(m => k === 'all' || (k === 'trips') === !!m.destination).length;
+  return `<div class="seg">${[['all', 'Alles'], ['trips', 'Trips'], ['memories', 'Geen Trip']].map(([k, t]) =>
+    `<button class="${S.filter === k ? 'on' : ''}" onclick="S.filter='${k}';render()">${t} ${n(k)}</button>`).join('')}</div>`;
+}
+
+// A — the current Indexer shape: a list on the left, everything about one Memory on the right.
+function variantA() {
+  const list = visible(); let year = null, rows = '';
+  for (const m of list) {
+    const y = dateOf(m) ? dateOf(m).slice(0, 4) : 'Nog niet geïndexeerd';
+    if (y !== year) { rows += `<div class="a-year">${y}</div>`; year = y; }
+    rows += `<div class="a-row ${S.selected === m.id ? 'sel' : ''}" onclick="S.selected='${m.id}';render()">
+      <span class="n">${esc(m.name)}</span>${m.needsReindex ? '<span class="stale">●</span>' : ''}${m.destination ? '<span class="pin">📍</span>' : ''}</div>`;
+  }
+  const m = byId(S.selected) || list[0];
+  const detail = !m ? '<p class="dim">Niets geselecteerd.</p>' : `
+    <div style="display:flex;gap:10px;align-items:center"><h2 style="flex:1">${esc(m.name)}</h2>${stale(m)}</div>
+    <div class="a-field"><label>Soort</label><div>${m.destination ? `Trip ${kind(m)}` : 'Memory, geen Trip: niet op de globe'} <button class="btn small" onclick="act.setDestination('${m.id}')">${m.destination ? 'Destination wijzigen…' : 'Maak er een Trip van…'}</button></div></div>
+    <div class="a-field"><label>Datum</label><div>${dateCell(m)} ${m.dateOverride ? `<span class="dim">(standaard ${fmt(m.defaultDate)})</span>` : '<span class="dim">(vroegste foto)</span>'} <button class="btn small" onclick="act.setDate('${m.id}')">Wijzigen…</button></div></div>
+    <div class="a-field"><label>Source Folders</label>${folderList(m)}<div><button class="btn small" onclick="act.addFolder('${m.id}')">+ Map toevoegen…</button></div></div>
+    <div style="display:flex;gap:8px"><button class="btn ${m.needsReindex ? 'primary' : ''}" onclick="act.reindex('${m.id}')">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'}</button><button class="btn" onclick="act.remove('${m.id}')">Verwijderen</button></div>`;
+  return `<div class="a-grid"><div class="panel a-list">${rows || '<p class="dim">Geen Memories.</p>'}</div><div class="panel a-detail">${detail}</div></div>`;
+}
+
+// B — one dense table, everything visible at a glance; click a cell to edit, a row to open its folders.
+function variantB() {
+  const th = (k, t) => `<th onclick="S.sort='${k}';render()">${t}${S.sort === k ? ' ↓' : ''}</th>`;
+  const rows = visible().map(m => `
+    <tr class="${S.open === m.id ? 'open' : ''}">
+      <td><b>${esc(m.name)}</b> ${stale(m)}</td>
+      <td><span class="edit" onclick="act.setDestination('${m.id}')">${kind(m)}</span></td>
+      <td><span class="edit" onclick="act.setDate('${m.id}')">${dateCell(m)}</span></td>
+      <td><span class="edit" onclick="S.open=S.open==='${m.id}'?null:'${m.id}';render()">${m.sourceFolders.length} ${m.sourceFolders.length === 1 ? 'map' : 'mappen'} ▾</span>
+        ${S.open === m.id ? folderList(m) + `<button class="btn small" onclick="act.addFolder('${m.id}')">+ Map…</button>` : ''}</td>
+      <td style="white-space:nowrap"><button class="btn small ${m.needsReindex ? 'primary' : ''}" onclick="act.reindex('${m.id}')">↻</button> <button class="btn small" onclick="act.remove('${m.id}')">🗑</button></td>
+    </tr>`).join('');
+  return `<div class="panel"><table class="b"><tr>${th('name', 'Naam')}<th>Trip?</th>${th('date', 'Datum')}<th>Source Folders</th><th></th></tr>${rows}</table></div>`;
+}
+
+// C — the kind is the layout: Trips left, other Memories right; pending reindexes gathered in one queue on top.
+function variantC() {
+  const pending = S.memories.filter(m => m.needsReindex);
+  const card = m => `<div class="panel c-card">
+      <div class="t"><b>${esc(m.name)}</b><span class="dim">${dateCell(m)}</span></div>
+      ${m.destination ? `<div>${kind(m)}</div>` : ''}${stale(m)}
+      ${folderList(m)}
+      <div class="c-acts">
+        <button class="btn small" onclick="act.addFolder('${m.id}')">+ Map</button>
+        <button class="btn small" onclick="act.setDestination('${m.id}')">${m.destination ? 'Destination…' : '→ Trip…'}</button>
+        <button class="btn small" onclick="act.setDate('${m.id}')">Datum…</button>
+        <button class="btn small" onclick="act.remove('${m.id}')">Verwijderen</button>
+      </div></div>`;
+  const sorted = S.memories.slice().sort((x, y) => (dateOf(y) || '9').localeCompare(dateOf(x) || '9'));
+  return `${pending.length ? `<div class="panel c-queue"><b>${pending.length} wacht${pending.length === 1 ? '' : 'en'} op herindexeren:</b><span style="flex:1">${pending.map(m => esc(m.name)).join(', ')}</span><button class="btn primary" onclick="act.reindexAll()">Alles herindexeren</button></div>` : ''}
+    <div class="c-cols">
+      <div class="c-col"><h2>📍 Trips <span class="dim">· op de globe</span></h2>${sorted.filter(m => m.destination).map(card).join('')}</div>
+      <div class="c-col"><h2>Memories <span class="dim">· alleen in de tijdlijn</span></h2>${sorted.filter(m => !m.destination).map(card).join('')}</div>
+    </div>`;
+}
+
+function render() {
+  $('#filter').innerHTML = variant === 'c' ? '' : filterSeg();
+  $('#view').innerHTML = ({ a: variantA, b: variantB, c: variantC }[variant] || variantA)();
+  $('#state').textContent = JSON.stringify(S.memories.map(({ id, destination, dateOverride, defaultDate, needsReindex, sourceFolders }) =>
+    ({ id, destination, date: dateOverride || defaultDate, dateOverride, needsReindex, sourceFolders })), null, 2);
+  document.querySelectorAll('.proto-bar [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === variant));
+}
+document.querySelectorAll('.proto-bar [data-v]').forEach(b => b.onclick = () => { location.search = '?variant=' + b.dataset.v; });
+render();
+</script>
+</body>
+</html>
