@@ -29,7 +29,7 @@ The playable form of a Memory: its Chapters and Media Items composed into one co
 _Avoid_: Slideshow, Presentation, Playback, Movie, Highlight reel
 
 **Source Folder**:
-A folder on the NAS pointed at during indexing. Its subfolders are included. One Memory may draw on several.
+A folder on the NAS pointed at during indexing. Its subfolders are included. One Memory may draw on several, pooled into one sequence as if they were one folder; one Source Folder may also feed several Memories, each taking all of it.
 _Avoid_: Input directory, Import path
 
 **Indexer**:
@@ -45,5 +45,5 @@ The list of place names and their coordinates that a Destination name is resolve
 _Avoid_: Geocoder, Lookup table, Places database
 
 **Curation**:
-The operator's standing decisions about one Source Folder, kept in the Curation-folder — a location the operator controls independently of the Source Folder's own (often read-only) permissions — so they outlive the published catalogue and any re-run of the Indexer. Holds how each reported anomaly was dealt with, and in time the confirmed Chapter boundaries and Destination name.
+The operator's standing decisions about one Memory, kept in the Curation-folder — a location the operator controls independently of the Source Folders' own (often read-only) permissions — so they outlive the published catalogue and any re-run of the Indexer. Holds how each reported anomaly was dealt with, and which source files were left out, chosen as cover, or rotated; these are tied to the source file, not to its place in the sequence, so adding a Source Folder never loses them.
 _Avoid_: Sidecar, Overrides, Metadata, Corrections
