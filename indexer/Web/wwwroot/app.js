@@ -1191,6 +1191,8 @@ function showMigrationBanner(report) {
     : steps.map((step) => `
         <p><strong>Migratie '${escapeHtml(step.step)}' gelukt:</strong> ${step.memoryCount} Memories bijgewerkt.
         Back-up: ${step.backups.map(escapeHtml).join(', ')}.</p>
+        ${(step.droppedFolders ?? []).length === 0 ? '' : `<p>Nog nooit geïndexeerde mappen, uit de configuratie gehaald (voeg ze opnieuw toe):</p>
+          <ul>${step.droppedFolders.map((path) => `<li>${escapeHtml(path)}</li>`).join('')}</ul>`}
         ${step.fallbackDates.length === 0 ? '' : `<p>Geen opnametijd gevonden; de datum is een terugval (indexeerdatum van de map of de catalogus):</p>
           <ul>${step.fallbackDates.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>`}`).join('');
 

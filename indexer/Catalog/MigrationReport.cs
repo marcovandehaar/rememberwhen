@@ -20,6 +20,10 @@ public sealed class MigrationStepResult
 
     // Memories whose date is a fallback (no capture time to take it from).
     public List<string> FallbackDates { get; init; } = [];
+
+    // Source Folders that were configured but never indexed: the V2 config
+    // has no place for a folder outside a Memory, so they are dropped and listed.
+    public List<string> DroppedFolders { get; init; } = [];
 }
 
 public sealed class MigrationReport

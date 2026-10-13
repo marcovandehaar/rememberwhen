@@ -165,7 +165,7 @@ public static class UiServer
                 return Results.BadRequest(new ErrorResponse($"Source Folder bestaat niet meer: {body.Path}"));
 
             var existing = config.FindIndexed(body.Path);
-            var memoryName = string.IsNullOrWhiteSpace(body.MemoryName) ? existing?.MemoryName : body.MemoryName;
+            var memoryName = string.IsNullOrWhiteSpace(body.MemoryName) ? existing?.Name : body.MemoryName;
             var destinationName = string.IsNullOrWhiteSpace(body.DestinationName) ? existing?.DestinationName : body.DestinationName;
 
             if (string.IsNullOrWhiteSpace(memoryName))
@@ -174,10 +174,10 @@ public static class UiServer
                 return Results.BadRequest(new ErrorResponse("Destination-naam mag niet leeg zijn."));
 
             var newMemoryId = Slug.From(memoryName);
-            var collision = config.IndexedFolders.FirstOrDefault(f => f.MemoryId == newMemoryId && f.SourceFolder != body.Path);
+            var collision = config.Memories.FirstOrDefault(m => m.IndexedAt is not null && m.MemoryId == newMemoryId && !m.SourceFolders.Contains(body.Path));
             if (collision is not null)
                 return Results.BadRequest(new ErrorResponse(
-                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolder}). Kies een andere Memory-naam."));
+                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolders[0]}). Kies een andere Memory-naam."));
 
             var (_, gazetteerPath, error) = LoadGazetteer(configPath,
                 r => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {r}. Configureer 'm eerst.")));
@@ -235,7 +235,7 @@ public static class UiServer
                 }
 
                 var freshConfig = IndexerConfig.Load(configPath);
-                freshConfig.RecordIndexed(body.Path, newMemory.Id, memoryName, destinationName);
+                freshConfig.RecordIndexed(body.Path, newMemory.Id, memoryName, destinationName, newMemory.Date);
                 freshConfig.Save(configPath);
 
                 state.AppendLog($"Catalogus bijgewerkt: {catalogPath}");
@@ -552,10 +552,10 @@ public static class UiServer
 
             // The same check a reindex under this name would hit later.
             var newMemoryId = Slug.From(memoryName);
-            var collision = config.IndexedFolders.FirstOrDefault(f => f.MemoryId == newMemoryId && f.SourceFolder != body.Path);
+            var collision = config.Memories.FirstOrDefault(m => m.IndexedAt is not null && m.MemoryId == newMemoryId && !m.SourceFolders.Contains(body.Path));
             if (collision is not null)
                 return Results.BadRequest(new ErrorResponse(
-                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolder}). Kies een andere Memory-naam."));
+                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolders[0]}). Kies een andere Memory-naam."));
 
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
@@ -897,15 +897,15 @@ public static class UiServer
                     .ToList();
 
                 indexedView = new IndexedView(
-                    indexed.MemoryId, indexed.MemoryName, indexed.DestinationName, memory.Destination?.Coordinate,
-                    indexed.IndexedAt, VersionedMediaUrl(memory.CoverImage), items);
+                    indexed.MemoryId, indexed.Name, indexed.DestinationName ?? "", memory.Destination?.Coordinate,
+                    indexed.IndexedAt!.Value, VersionedMediaUrl(memory.CoverImage), items);
 
                 // The sidebar orders by when a trip happened, not when it was
                 // indexed — the earliest capture date across the memory's own
                 // photos, falling back to IndexedAt only for the rare memory
                 // with no EXIF timestamp on any item at all.
                 tripDate = items.Select(i => i.CapturedAt).Where(d => d.HasValue).Select(d => d!.Value)
-                    .DefaultIfEmpty(indexed.IndexedAt).Min();
+                    .DefaultIfEmpty(indexed.IndexedAt!.Value).Min();
             }
 
             return (View: new FolderView(path, Directory.Exists(path), indexedView), TripDate: tripDate);
@@ -983,10 +983,20 @@ public static class UiServer
     {
         var config = IndexerConfig.Load(configPath);
         var catalogPath = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json");
-        var indexedAt = config.IndexedFolders.ToDictionary(f => f.MemoryId, f => f.IndexedAt);
+        Dictionary<string, DateTimeOffset> indexedAt;
+        try
+        {
+            indexedAt = (ConfigMigrationV2.ReadV1(configPath)?.IndexedFolders ?? [])
+                .ToDictionary(f => f.MemoryId, f => f.IndexedAt);
+        }
+        catch (Exception)
+        {
+            indexedAt = []; // the config step reports an unreadable config itself
+        }
 
         MigrationRunner.Run(MigrationReportPath(configPath), Console.Out,
-            () => CatalogMigrationV2.Run(catalogPath, PendingPublishPath(configPath), indexedAt));
+            () => CatalogMigrationV2.Run(catalogPath, PendingPublishPath(configPath), indexedAt),
+            () => ConfigMigrationV2.Run(configPath, catalogPath));
     }
 
     // Lives next to config.json — operator-local bookkeeping, not part of

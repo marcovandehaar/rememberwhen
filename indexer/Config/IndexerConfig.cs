@@ -4,25 +4,42 @@ using System.Text.Json;
 namespace Indexer.Config;
 
 // The one configuration file docs/v1-build-spec.md's Configuratie section
-// calls for (#22, #37): Source Folders, the Gazetteer path, and the output
-// location. Starts empty on disk — unlike the Gazetteer, there is nothing
-// to seed by hand before the settings UI can be used.
-// One Source Folder maps to at most one published Memory. Recorded here so
-// the settings UI can offer "reindex" and "remove" on something already
-// published, rather than only ever offering a first-time index.
-public sealed class IndexedFolder
+// calls for (#22, #37): the Memories with their Source Folders, the
+// Gazetteer path, and the output location. Starts empty on disk — unlike the
+// Gazetteer, there is nothing to seed by hand before the settings UI can be
+// used.
+
+// V2 (#63) keys the config by Memory instead of by folder. A Source Folder
+// exists only inside a Memory; for now every Memory has exactly one, as
+// before (several per Memory is #64). The settings UI offers "reindex" and
+// "remove" on a Memory that is already published, rather than only ever
+// offering a first-time index.
+public sealed class MemoryConfig
 {
-    public required string SourceFolder { get; set; }
     public required string MemoryId { get; set; }
-    public required string MemoryName { get; set; }
-    public required string DestinationName { get; set; }
-    public DateTimeOffset IndexedAt { get; set; } = DateTimeOffset.UtcNow;
+    public required string Name { get; set; }
+
+    // Null: the Memory is not a Trip.
+    public string? DestinationName { get; set; }
+
+    // Set by the operator; wins over DefaultDate (arrives with the Indexer list, #65).
+    public DateOnly? DateOverride { get; set; }
+
+    // The date the last build gave the Memory (its earliest effective capture day).
+    public required DateOnly DefaultDate { get; set; }
+
+    // The Source Folders changed since the last build, so the catalogue is stale.
+    public bool NeedsReindex { get; set; }
+
+    // When the photos were last scanned; null for a folder that was added but never indexed.
+    public DateTimeOffset? IndexedAt { get; set; }
+
+    public List<string> SourceFolders { get; set; } = [];
 }
 
 public sealed class IndexerConfig
 {
-    public List<string> SourceFolders { get; set; } = [];
-    public List<IndexedFolder> IndexedFolders { get; set; } = [];
+    public List<MemoryConfig> Memories { get; set; } = [];
     public string GazetteerPath { get; set; } = "gazetteer.json";
     public string OutputFolder { get; set; } = "output";
 
@@ -45,6 +62,8 @@ public sealed class IndexerConfig
     // running this isn't guaranteed to have it on PATH.
     public string FfmpegPath { get; set; } = "";
 
+    public IEnumerable<string> SourceFolders => Memories.SelectMany(m => m.SourceFolders);
+
     public static IndexerConfig Load(string path)
     {
         if (!File.Exists(path)) return new IndexerConfig();
@@ -54,36 +73,66 @@ public sealed class IndexerConfig
                ?? throw new InvalidDataException($"Configuratie op {path} kon niet gelezen worden.");
     }
 
-    public void Save(string path) =>
-        File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOptions.Default));
+    // A config that still has its V1 folders (the migration failed or hasn't
+    // run) must not be overwritten: this model doesn't read them, so saving
+    // would silently erase the folder list and pass the migration's commit point.
+    public void Save(string path)
+    {
+        if (ConfigMigrationV2.ReadV1(path) is not null)
+            throw new InvalidOperationException(
+                $"{path} is nog niet gemigreerd naar V2; herstel de migratie (zie de melding in de Indexer) voordat je instellingen opslaat.");
 
+        File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOptions.Default));
+    }
+
+    public MemoryConfig? FindByFolder(string sourceFolder) =>
+        Memories.FirstOrDefault(m => m.SourceFolders.Contains(sourceFolder));
+
+    // A folder added but not yet indexed is a Memory the catalogue doesn't
+    // know yet (IndexedAt null), named after the folder until the index form
+    // gives it its real name.
     public void AddSourceFolder(string path)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Source Folder bestaat niet: {path}");
 
-        if (!SourceFolders.Contains(path)) SourceFolders.Add(path);
-    }
+        if (FindByFolder(path) is not null) return;
 
-    public void RemoveSourceFolder(string path)
-    {
-        SourceFolders.Remove(path);
-        ForgetIndexed(path);
-    }
-
-    public IndexedFolder? FindIndexed(string sourceFolder) =>
-        IndexedFolders.FirstOrDefault(f => f.SourceFolder == sourceFolder);
-
-    public void RecordIndexed(string sourceFolder, string memoryId, string memoryName, string destinationName)
-    {
-        ForgetIndexed(sourceFolder);
-        IndexedFolders.Add(new IndexedFolder
+        var name = Path.GetFileName(path.TrimEnd('\\', '/'));
+        Memories.Add(new MemoryConfig
         {
-            SourceFolder = sourceFolder,
-            MemoryId = memoryId,
-            MemoryName = memoryName,
-            DestinationName = destinationName,
+            MemoryId = Slug.From(name),
+            Name = name,
+            DefaultDate = DateOnly.FromDateTime(DateTime.Today),
+            NeedsReindex = true,
+            SourceFolders = [path],
         });
+    }
+
+    // One folder per Memory for now, so removing the folder removes the Memory.
+    public void RemoveSourceFolder(string path) =>
+        Memories.RemoveAll(m => m.SourceFolders.Contains(path));
+
+    // Only a Memory that has been indexed: a folder that was just added has
+    // nothing published to reindex or remove yet.
+    public MemoryConfig? FindIndexed(string sourceFolder) =>
+        Memories.FirstOrDefault(m => m.IndexedAt is not null && m.SourceFolders.Contains(sourceFolder));
+
+    public void RecordIndexed(string sourceFolder, string memoryId, string memoryName, string? destinationName, DateOnly defaultDate)
+    {
+        var memory = FindByFolder(sourceFolder);
+        if (memory is null)
+        {
+            memory = new MemoryConfig { MemoryId = memoryId, Name = memoryName, DefaultDate = defaultDate, SourceFolders = [sourceFolder] };
+            Memories.Add(memory);
+        }
+
+        memory.MemoryId = memoryId;
+        memory.Name = memoryName;
+        memory.DestinationName = destinationName;
+        memory.DefaultDate = defaultDate;
+        memory.NeedsReindex = false;
+        memory.IndexedAt = DateTimeOffset.UtcNow;
     }
 
     // Re-homing a Memory to a (possibly new) Destination changes this cached
@@ -101,9 +150,6 @@ public sealed class IndexerConfig
     public void UpdateIndexedMemoryName(string sourceFolder, string memoryName)
     {
         var indexed = FindIndexed(sourceFolder);
-        if (indexed is not null) indexed.MemoryName = memoryName;
+        if (indexed is not null) indexed.Name = memoryName;
     }
-
-    public void ForgetIndexed(string sourceFolder) =>
-        IndexedFolders.RemoveAll(f => f.SourceFolder == sourceFolder);
 }
