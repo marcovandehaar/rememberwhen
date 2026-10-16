@@ -1,24 +1,17 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Memory } from '../catalog/types'
 import { SF } from '../title/modes'
 import { Press } from '../title/Press'
 import { Fotodoos } from './Fotodoos'
 import { Dymo } from './Dymo'
-import { INK, PAPER, PINS, WALL } from './wallStyle'
+import { Hold, LiftedCorners, PRINT_FILTER, PrintGloss } from './Hold'
+import { INK, PAPER, WALL } from './wallStyle'
 import type { TimelineView } from './timelineView'
 import { dateLabel, groupByYear, polaroidCover, remainingBelow } from './timelineData'
 
 // The globe pin's own ring and glow, so a Trip reads the same on the wall.
 const PIN_GLOW = '0 0 16px rgba(120,180,255,.55), 0 4px 12px rgba(0,0,0,.6)'
-
-const TAPES = [
-  'repeating-linear-gradient(45deg, rgba(255,226,150,.82) 0 7px, rgba(255,214,128,.82) 7px 14px)',
-  'repeating-linear-gradient(-45deg, rgba(170,220,205,.8) 0 6px, rgba(150,206,190,.8) 6px 12px)',
-  'repeating-linear-gradient(90deg, rgba(246,186,190,.8) 0 5px, rgba(240,170,176,.8) 5px 10px)',
-]
-const JAGGED =
-  'polygon(0 6%, 3% 0, 6% 8%, 9% 0, 91% 0, 94% 7%, 97% 0, 100% 8%, 100% 92%, 97% 100%, 94% 93%, 91% 100%, 9% 100%, 6% 92%, 3% 100%, 0 94%)'
 
 function Arrow({ on, onTap, label, children }: { on: boolean; onTap: () => void; label: string; children: ReactNode }) {
   return (
@@ -28,10 +21,6 @@ function Arrow({ on, onTap, label, children }: { on: boolean; onTap: () => void;
       </Press>
     </div>
   )
-}
-
-function Tape({ bg, style }: { bg: string; style: CSSProperties }) {
-  return <span style={{ position: 'absolute', height: 26, background: bg, clipPath: JAGGED, boxShadow: '0 1px 2px rgba(0,0,0,.08)', opacity: 0.92, ...style }} />
 }
 
 /** A Trip's badge on its photo: the globe pin's ring and glow, and the Destination's name. */
@@ -78,7 +67,6 @@ function Polaroid({ memory, i, active, settledBefore, onSettled, onOpen }: {
   onOpen: (m: Memory) => void
 }) {
   const tilt = TILTS[i % 6]
-  const hold = i % 3 // 0 pin, 1 tape on top, 2 tape on two corners
   const [settled, setSettled] = useState(settledBefore)
   const [lifting, setLifting] = useState(false)
   // A page's polaroids settle onto the wall the first time it is shown.
@@ -105,9 +93,7 @@ function Polaroid({ memory, i, active, settledBefore, onSettled, onOpen }: {
     >
       <Press onTap={open} label={memory.name} style={{ display: 'block', width: '100%' }}>
         <div style={{ position: 'relative', isolation: 'isolate' }}>
-          {/* lifted corners: two tilted shadows peeking out under the bottom edge */}
-          <span style={{ position: 'absolute', zIndex: -1, left: '6%', bottom: 10, width: '42%', height: 20, boxShadow: '0 14px 12px rgba(70,45,15,.32)', transform: 'rotate(-4deg)' }} />
-          <span style={{ position: 'absolute', zIndex: -1, right: '6%', bottom: 10, width: '42%', height: 20, boxShadow: '0 14px 12px rgba(70,45,15,.32)', transform: 'rotate(4deg)' }} />
+          <LiftedCorners />
 
           <div style={{ background: 'linear-gradient(170deg, #fffef9 0%, #f8f4ea 100%)', padding: '5.5% 5.5% 0', borderRadius: 2, boxShadow: '0 2px 3px rgba(70,45,15,.14), 0 0 0 1px rgba(70,45,15,.05)' }}>
             <div style={{ position: 'relative', aspectRatio: '1', overflow: 'hidden', background: '#d9cdb8' }}>
@@ -117,11 +103,9 @@ function Polaroid({ memory, i, active, settledBefore, onSettled, onOpen }: {
                 loading="lazy"
                 decoding="async"
                 draggable={false}
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'sepia(.14) saturate(1.06) contrast(.95) brightness(1.02)' }}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: PRINT_FILTER }}
               />
-              {/* print: a soft edge burn and a gloss */}
-              <span style={{ position: 'absolute', inset: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08), inset 0 0 34px rgba(70,40,10,.22)' }} />
-              <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(125deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 38%)' }} />
+              <PrintGloss />
               {memory.destination && <TripBadge name={memory.destination.name} />}
             </div>
             <div style={{ padding: '13px 6px 18px', textAlign: 'center' }}>
@@ -130,29 +114,7 @@ function Polaroid({ memory, i, active, settledBefore, onSettled, onOpen }: {
             </div>
           </div>
 
-          {/* what holds it to the wall */}
-          {hold === 0 && (
-            <span
-              style={{
-                position: 'absolute',
-                top: -8,
-                left: '50%',
-                marginLeft: -8,
-                width: 16,
-                height: 16,
-                borderRadius: '50%',
-                background: `radial-gradient(circle at 35% 32%, rgba(255,255,255,.75) 0 12%, ${PINS[i % PINS.length]} 40%, rgba(0,0,0,.35) 100%)`,
-                boxShadow: '1px 3px 3px rgba(0,0,0,.3)',
-              }}
-            />
-          )}
-          {hold === 1 && <Tape bg={TAPES[i % TAPES.length]} style={{ top: -13, left: '50%', width: '34%', transform: `translateX(-50%) rotate(${-tilt * 0.8}deg)` }} />}
-          {hold === 2 && (
-            <>
-              <Tape bg={TAPES[(i + 1) % TAPES.length]} style={{ top: -6, left: -18, width: '28%', transform: 'rotate(-38deg)' }} />
-              <Tape bg={TAPES[(i + 1) % TAPES.length]} style={{ top: -6, right: -18, width: '28%', transform: 'rotate(38deg)' }} />
-            </>
-          )}
+          <Hold i={i} tilt={tilt} />
         </div>
       </Press>
     </motion.div>

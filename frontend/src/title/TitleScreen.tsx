@@ -11,6 +11,8 @@ import { Cloud } from './Cloud'
 import { SkyCloud } from './SkyCloud'
 import { MODE_BG, SF, type Mode } from './modes'
 import { Press } from './Press'
+import { Hold, LiftedCorners, PRINT_FILTER, PrintGloss } from '../timeline/Hold'
+import { WALL } from '../timeline/wallStyle'
 import { pickCovers, yearRange, type YearRange } from './titleData'
 import './title.css'
 
@@ -195,7 +197,7 @@ function Window({ mode, index, settled, leaving, onChoose, years, covers }: {
         y: { duration: settled ? 0.4 : 1.2, delay: (settled ? 0 : 1.9) + index * 0.12, ease: EASE_OUT },
         opacity: { duration: hidden ? 0.25 : 0.4 },
       }}
-      style={{ position: 'absolute', overflow: 'hidden', background: MODE_BG[mode], boxShadow: '0 24px 60px rgba(30,20,60,.35)', ...rect }}
+      style={{ position: 'absolute', overflow: 'hidden', background: mode === 'timeline' ? (WALL.background as string) : MODE_BG[mode], boxShadow: '0 24px 60px rgba(30,20,60,.35)', ...rect }}
     >
       <Press onTap={() => onChoose(mode)} style={{ position: 'absolute', inset: 0 }}>
         {mode === 'globe' ? (
@@ -215,7 +217,24 @@ function Window({ mode, index, settled, leaving, onChoose, years, covers }: {
           </>
         )}
       </Press>
+      {mode === 'timeline' && <GoldenLight />}
     </motion.div>
+  )
+}
+
+// The sun's light on the paper: a warm glow along the top edge, a softer warm bounce off the clouds below.
+function GoldenLight() {
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        inset: 0,
+        pointerEvents: 'none',
+        background: 'linear-gradient(180deg, rgba(255,205,120,.3) 0%, rgba(255,205,120,0) 34%), linear-gradient(0deg, rgba(240,170,90,.22) 0%, rgba(240,170,90,0) 30%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,238,196,.8), inset 0 0 40px rgba(255,200,120,.18)',
+      }}
+    />
   )
 }
 
@@ -244,11 +263,16 @@ function CoverStrip({ covers }: { covers: string[] }) {
       }}
     >
       {[...covers, ...covers].map((src, k) => (
-        <div
-          key={k}
-          style={{ padding: '7px 7px 22px', background: '#fff', borderRadius: 3, boxShadow: '0 6px 14px rgba(80,50,20,.22)', transform: `rotate(${TILTS[k % TILTS.length]}deg)` }}
-        >
-          <img src={src} alt="" style={{ display: 'block', width: 120, height: 120, objectFit: 'cover' }} />
+        // the doubled half repeats the first, hold and all, so the loop stays seamless
+        <div key={k} style={{ position: 'relative', isolation: 'isolate', flex: 'none', transform: `rotate(${TILTS[k % TILTS.length]}deg)` }}>
+          <LiftedCorners />
+          <div style={{ padding: '7px 7px 22px', background: 'linear-gradient(170deg, #fffef9 0%, #f8f4ea 100%)', borderRadius: 2, boxShadow: '0 2px 3px rgba(70,45,15,.14), 0 0 0 1px rgba(70,45,15,.05)' }}>
+            <div style={{ position: 'relative', width: 120, height: 120, overflow: 'hidden', background: '#d9cdb8' }}>
+              <img src={src} alt="" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', filter: PRINT_FILTER }} />
+              <PrintGloss />
+            </div>
+          </div>
+          <Hold i={k % covers.length} tilt={TILTS[k % TILTS.length]} />
         </div>
       ))}
     </div>
