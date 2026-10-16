@@ -12,8 +12,7 @@ import { MODE_BG, SF, type Mode } from './modes'
 import { Press } from './Press'
 import { pickCovers, yearRange, type YearRange } from './titleData'
 import './title.css'
-import { BackdropBack, BackdropFront, LIGHT_A } from './prototype/Backdrop'
-import { LitPuffs } from './prototype/LitPuffs'
+import { BackdropBack, BackdropFront } from './prototype/Backdrop'
 import { Switcher, useThemeVariant } from './prototype/Switcher'
 import type { Theme } from './prototype/themes'
 
@@ -140,7 +139,7 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose, theme 
       </motion.div>}
 
       {/* the clouds we descend through */}
-      {!settled && <Descent theme={theme} />}
+      {!settled && <Descent />}
 
       {returningFrom && <ReturnVeil from={returningFrom} />}
     </motion.div>
@@ -303,7 +302,7 @@ function MiniEarth({ size }: { size: string }) {
 }
 
 // Cloud white first, then three layers that swell past the camera and fade.
-function Descent({ theme }: { theme: Theme | null }) {
+function Descent() {
   return (
     <>
       <motion.div
@@ -320,12 +319,12 @@ function Descent({ theme }: { theme: Theme | null }) {
           transition={{ duration: 1.7, delay: layer.delay, ease: [0.5, 0, 0.75, 0] }}
           style={{ position: 'absolute', inset: '-20%', zIndex: 21, pointerEvents: 'none' }}
         >
-          {theme ? <IntroClouds seed={layer.seed} /> : <>
+          <>
           <Cloud seed={layer.seed} color="250,247,244" puffs={10} style={{ left: 0, top: '0%', width: '60%', height: '60%' }} />
           <Cloud seed={layer.seed + 10} color="250,247,244" puffs={10} style={{ left: '40%', top: '10%', width: '60%', height: '60%' }} />
           <Cloud seed={layer.seed + 20} color="250,247,244" puffs={10} style={{ left: '0%', top: '45%', width: '60%', height: '60%' }} />
           <Cloud seed={layer.seed + 30} color="250,247,244" puffs={10} style={{ left: '40%', top: '50%', width: '60%', height: '60%' }} />
-          </>}
+          </>
         </motion.div>
       ))}
     </>
@@ -342,18 +341,5 @@ function ReturnVeil({ from }: { from: Mode }) {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       style={{ position: 'absolute', inset: 0, background: MODE_BG[from], pointerEvents: 'none', zIndex: 50 }}
     />
-  )
-}
-
-// PROTOTYPE (#75): the clouds we fall through are the original ones, lit like the scene's.
-const LIGHT_INTRO = { sun: LIGHT_A.sun, lit: '#ffe2a0', body: '#fbf6ec', shadow: '#aebfc0' }
-function IntroClouds({ seed }: { seed: number }) {
-  const spots: [number, number, number][] = [[0, 0, 0], [40, 10, 10], [0, 45, 20], [40, 50, 30]]
-  return (
-    <>
-      {spots.map(([l, tp, d]) => (
-        <LitPuffs key={d} seed={seed + d} puffs={10} light={LIGHT_INTRO} at={{ x: l + 30, y: tp + 30 }} style={{ left: `${l}%`, top: `${tp}%`, width: '60%', height: '60%' }} />
-      ))}
-    </>
   )
 }
