@@ -13,6 +13,7 @@ import { Press } from './Press'
 import { pickCovers, yearRange, type YearRange } from './titleData'
 import './title.css'
 import { BackdropBack, BackdropFront } from './prototype/Backdrop'
+import { CloudStage, PuffCloud } from './prototype/PuffCloud'
 import { Switcher, useThemeVariant } from './prototype/Switcher'
 import type { Theme } from './prototype/themes'
 
@@ -139,7 +140,7 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose, theme 
       </motion.div>}
 
       {/* the clouds we descend through */}
-      {!settled && <Descent />}
+      {!settled && <Descent theme={theme} />}
 
       {returningFrom && <ReturnVeil from={returningFrom} />}
     </motion.div>
@@ -302,7 +303,7 @@ function MiniEarth({ size }: { size: string }) {
 }
 
 // Cloud white first, then three layers that swell past the camera and fade.
-function Descent() {
+function Descent({ theme }: { theme: Theme | null }) {
   return (
     <>
       <motion.div
@@ -319,10 +320,12 @@ function Descent() {
           transition={{ duration: 1.7, delay: layer.delay, ease: [0.5, 0, 0.75, 0] }}
           style={{ position: 'absolute', inset: '-20%', zIndex: 21, pointerEvents: 'none' }}
         >
+          {theme ? <IntroClouds seed={layer.seed} /> : <>
           <Cloud seed={layer.seed} color="250,247,244" puffs={10} style={{ left: 0, top: '0%', width: '60%', height: '60%' }} />
           <Cloud seed={layer.seed + 10} color="250,247,244" puffs={10} style={{ left: '40%', top: '10%', width: '60%', height: '60%' }} />
           <Cloud seed={layer.seed + 20} color="250,247,244" puffs={10} style={{ left: '0%', top: '45%', width: '60%', height: '60%' }} />
           <Cloud seed={layer.seed + 30} color="250,247,244" puffs={10} style={{ left: '40%', top: '50%', width: '60%', height: '60%' }} />
+          </>}
         </motion.div>
       ))}
     </>
@@ -339,5 +342,18 @@ function ReturnVeil({ from }: { from: Mode }) {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       style={{ position: 'absolute', inset: 0, background: MODE_BG[from], pointerEvents: 'none', zIndex: 50 }}
     />
+  )
+}
+
+// PROTOTYPE (#75): the clouds we fall through, made like the lit clouds of the
+// scene itself: the same shaded puffs, only bright and sunlit all through.
+const INTRO_THEME: Theme = { key: 'intro', name: '', sky: '', sun: { x: 50, y: 40 }, light: '#fff4d6', shade: '#bdb7a4', title: ['', '', ''], glint: ['', '', ''] }
+function IntroClouds({ seed }: { seed: number }) {
+  return (
+    <CloudStage>
+      {[[25, 28, 0], [76, 36, 10], [24, 72, 20], [74, 74, 30]].map(([x, y, d]) => (
+        <PuffCloud key={d} theme={INTRO_THEME} x={x} y={y} w={760} h={460} seed={seed + d} puffs={20} lift={0.35} />
+      ))}
+    </CloudStage>
   )
 }
