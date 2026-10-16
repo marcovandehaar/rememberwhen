@@ -12,6 +12,9 @@ import { MODE_BG, SF, type Mode } from './modes'
 import { Press } from './Press'
 import { pickCovers, yearRange, type YearRange } from './titleData'
 import './title.css'
+import { BackdropBack, BackdropFront } from './prototype/Backdrop'
+import { Switcher, useThemeVariant } from './prototype/Switcher'
+import type { Theme } from './prototype/themes'
 
 type Props = {
   memories: Memory[]
@@ -55,6 +58,7 @@ export function TitleScreen({ memories, returningFrom, onChoose }: Props) {
   // Random on every launch, but not re-rolled when the scene remounts after a skip.
   const covers = useMemo(() => pickCovers(memories, COVERS_IN_STRIP), [memories])
   const years = useMemo(() => yearRange(memories), [memories])
+  const [theme, pickVariant, variantKey] = useThemeVariant()
 
   return (
     <>
@@ -66,7 +70,9 @@ export function TitleScreen({ memories, returningFrom, onChoose }: Props) {
         returningFrom={returningFrom}
         fadeIn={skipped}
         onChoose={onChoose}
+        theme={theme}
       />
+      <Switcher current={variantKey} onPick={pickVariant} />
       {!settled && !introOver && (
         <div data-testid="title-skip" onPointerDown={() => setSkipped(true)} style={{ position: 'fixed', inset: 0, zIndex: 100 }} />
       )}
@@ -74,7 +80,8 @@ export function TitleScreen({ memories, returningFrom, onChoose }: Props) {
   )
 }
 
-function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose }: {
+function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose, theme }: {
+  theme: Theme | null
   covers: string[]
   years: YearRange | null
   settled: boolean
@@ -103,22 +110,25 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose }: {
         inset: 0,
         overflow: 'hidden',
         userSelect: 'none',
-        background: 'linear-gradient(180deg, #10275a 0%, #4f72b8 45%, #e9b78e 74%, #fde6c8 100%)',
+        background: theme?.sky ?? 'linear-gradient(180deg, #10275a 0%, #4f72b8 45%, #e9b78e 74%, #fde6c8 100%)',
+        ...(theme ? ({ '--rw-t1': theme.title[0], '--rw-t2': theme.title[1], '--rw-t3': theme.title[2], '--rw-g1': theme.glint[0], '--rw-g2': theme.glint[1], '--rw-g3': theme.glint[2] } as CSSProperties) : {}),
       }}
     >
+      {theme && <BackdropBack theme={theme} />}
       {/* low sun on the cloud horizon */}
-      <div style={{ position: 'absolute', left: '50%', bottom: '24%', width: 0, height: 0 }}>
+      {!theme && <div style={{ position: 'absolute', left: '50%', bottom: '24%', width: 0, height: 0 }}>
         <div style={{ position: 'absolute', width: '120vmin', height: '70vmin', left: '-60vmin', top: '-35vmin', borderRadius: '50%', background: 'radial-gradient(closest-side, rgba(255,220,160,.6), rgba(255,200,150,0))' }} />
         <div style={{ position: 'absolute', width: '20vmin', height: '20vmin', left: '-10vmin', top: '-10vmin', borderRadius: '50%', background: 'radial-gradient(closest-side, #fffaf0, #ffd99a 60%, rgba(255,200,130,0))' }} />
-      </div>
+      </div>}
 
       <Title delay={at(1.2)} settled={settled} hidden={leaving !== null} />
 
       <Window mode="globe" index={0} settled={settled} leaving={leaving} onChoose={choose} years={years} covers={covers} />
       <Window mode="timeline" index={1} settled={settled} leaving={leaving} onChoose={choose} years={years} covers={covers} />
 
+      {theme && <BackdropFront theme={theme} />}
       {/* sea of clouds in front of the windows' feet */}
-      <motion.div
+      {!theme && <motion.div
         animate={{ opacity: leaving ? 0 : 1 }}
         transition={{ duration: 0.2 }}
         style={{ position: 'absolute', left: '-10%', right: '-10%', bottom: '-8%', height: '30%', zIndex: 3, pointerEvents: 'none', animation: 'rw-drift 16s ease-in-out infinite alternate' }}
@@ -126,7 +136,7 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose }: {
         <Cloud seed={31} color="255,246,238" puffs={16} style={{ left: 0, width: '55%', top: '10%', height: '100%' }} />
         <Cloud seed={32} color="255,240,232" puffs={16} style={{ left: '30%', width: '45%', top: '22%', height: '100%' }} />
         <Cloud seed={33} color="255,246,238" puffs={16} style={{ left: '55%', width: '50%', top: '8%', height: '100%' }} />
-      </motion.div>
+      </motion.div>}
 
       {/* the clouds we descend through */}
       {!settled && <Descent />}

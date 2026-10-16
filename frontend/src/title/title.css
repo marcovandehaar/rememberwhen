@@ -14,12 +14,12 @@
   background:
     linear-gradient(105deg,
       #0000 calc(50% - 7%),
-      #ffe0a3 calc(50% - 4%),
-      #ffb48a calc(50% - 1.5%),
-      #ffffff 50%,
-      #a9c8ff calc(50% + 2.5%),
+      var(--rw-g1, #ffe0a3) calc(50% - 4%),
+      var(--rw-g1, #ffb48a) calc(50% - 1.5%),
+      var(--rw-g2, #ffffff) 50%,
+      var(--rw-g3, #a9c8ff) calc(50% + 2.5%),
       #0000 calc(50% + 6%)) 0 0 / 300% 100% no-repeat,
-    linear-gradient(180deg, #ffffff 35%, #ffe7cf 75%, #ffd2ae 100%);
+    linear-gradient(180deg, var(--rw-t1, #ffffff) 35%, var(--rw-t2, #ffe7cf) 75%, var(--rw-t3, #ffd2ae) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   animation: rw-shimmer 5.5s ease-in-out infinite both;
@@ -28,3 +28,4 @@
   0% { background-position: 100% 0, 0 0 }
   45%, 100% { background-position: 0% 0, 0 0 }
 }
+@keyframes rw-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
