@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { dateLabel, groupByYear, polaroidCover, remainingBelow } from './timelineData'
+import { countLabel, dateLabel, groupByYear, polaroidCover, remainingBelow, stackCovers } from './timelineData'
 import type { Memory } from '../catalog/types'
 
 function memory(id: string, date: string, extra: Partial<Memory> = {}): Memory {
@@ -63,4 +63,15 @@ test('"nog N" is gone at the end of the year', () => {
   ]
 
   expect(remainingBelow(rows, 0, 700)).toBe(0)
+})
+
+test('a year\'s stack shows at most three covers, the first Memories of the year', () => {
+  const [page] = groupByYear(['a', 'b', 'c', 'd'].map((id, i) => memory(id, `2022-0${i + 1}-01`)))
+
+  expect(stackCovers(page)).toEqual(['a-story.jpg', 'b-story.jpg', 'c-story.jpg'])
+})
+
+test('the count under a stack is in Dutch, singular for one Memory', () => {
+  expect(countLabel(1)).toBe('1 herinnering')
+  expect(countLabel(5)).toBe('5 herinneringen')
 })

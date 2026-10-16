@@ -1,52 +1,24 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Memory } from '../catalog/types'
-import { MODE_BG, SF } from '../title/modes'
+import { SF } from '../title/modes'
 import { Press } from '../title/Press'
+import { Fotodoos } from './Fotodoos'
+import { Dymo } from './Dymo'
+import { INK, PAPER, PINS, WALL } from './wallStyle'
 import type { TimelineView } from './timelineView'
 import { dateLabel, groupByYear, polaroidCover, remainingBelow } from './timelineData'
 
-const PAPER = MODE_BG.timeline
-const INK = '#2a2018'
 // The globe pin's own ring and glow, so a Trip reads the same on the wall.
 const PIN_GLOW = '0 0 16px rgba(120,180,255,.55), 0 4px 12px rgba(0,0,0,.6)'
 
-const GRAIN = `url("data:image/svg+xml;utf8,${encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .32  0 0 0 0 .22  0 0 0 0 .1  0 0 0 .11 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>",
-)}")`
-const WALL: CSSProperties = {
-  background: `${GRAIN}, radial-gradient(ellipse 120% 90% at 50% 40%, transparent 55%, rgba(120,85,40,.16) 100%), ${PAPER}`,
-}
 const TAPES = [
   'repeating-linear-gradient(45deg, rgba(255,226,150,.82) 0 7px, rgba(255,214,128,.82) 7px 14px)',
   'repeating-linear-gradient(-45deg, rgba(170,220,205,.8) 0 6px, rgba(150,206,190,.8) 6px 12px)',
   'repeating-linear-gradient(90deg, rgba(246,186,190,.8) 0 5px, rgba(240,170,176,.8) 5px 10px)',
 ]
-const PINS = ['#d4492f', '#2f6fd4', '#e0a51f', '#3f9a5a']
 const JAGGED =
   'polygon(0 6%, 3% 0, 6% 8%, 9% 0, 91% 0, 94% 7%, 97% 0, 100% 8%, 100% 92%, 97% 100%, 94% 93%, 91% 100%, 9% 100%, 6% 92%, 3% 100%, 0 94%)'
-
-/** The embossed label-maker strip the year sits on. */
-function Dymo({ children }: { children: ReactNode }) {
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        padding: '9px 16px 9px 20px',
-        background: 'linear-gradient(180deg, #2b2f38, #1a1d24)',
-        borderRadius: 4,
-        boxShadow: '0 3px 8px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.08)',
-        color: '#f4f1ea',
-        font: `700 22px/1 ${SF}`,
-        letterSpacing: '.32em',
-        textShadow: '0 1px 0 rgba(255,255,255,.18), 0 -1px 0 rgba(0,0,0,.7)',
-        transform: 'rotate(-1.2deg)',
-      }}
-    >
-      {children}
-    </span>
-  )
-}
 
 function Arrow({ on, onTap, label, children }: { on: boolean; onTap: () => void; label: string; children: ReactNode }) {
   return (
@@ -298,6 +270,7 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
   const [page, setPage] = useState(() => Math.min(view.page ?? last, last))
   // While an arrow's smooth scroll is under way, scroll events must not pull the page back to the old year.
   const heading = useRef<number | null>(null)
+  const [overview, setOverview] = useState(false)
 
   const jumpTo = (p: number, smooth = false) => {
     const el = pager.current
@@ -326,8 +299,32 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
     }
   }
 
+  // Pinching the wall (Safari's gesture events; ctrl+wheel is a trackpad pinch on desktop) opens the overview too.
+  useEffect(() => {
+    const onGesture = (ev: Event) => {
+      if ((ev as Event & { scale: number }).scale < 0.8) setOverview(true)
+    }
+    const onWheel = (ev: WheelEvent) => {
+      if (ev.ctrlKey && ev.deltaY > 4) {
+        ev.preventDefault()
+        setOverview(true)
+      }
+    }
+    document.addEventListener('gesturechange', onGesture)
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      document.removeEventListener('gesturechange', onGesture)
+      window.removeEventListener('wheel', onWheel)
+    }
+  }, [])
+
   return (
     <div style={{ position: 'fixed', inset: 0, ...WALL, color: INK, fontFamily: SF, userSelect: 'none' }}>
+      <motion.div
+        animate={overview ? { scale: 0.82, opacity: 0 } : { scale: 1, opacity: 1 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+        style={{ position: 'absolute', inset: 0 }}
+      >
       <div ref={pager} onScroll={onScroll} style={{ position: 'absolute', inset: 0, display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', scrollbarWidth: 'none' }}>
         {pages.map((p, i) => (
           <YearPage key={p.year} year={p.year} index={i} memories={p.memories} active={i === page} view={view} onOpen={onOpen} />
@@ -337,11 +334,28 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
       {/* the year on its label, and the neighbours */}
       <div style={{ position: 'absolute', top: 'calc(22px + env(safe-area-inset-top))', left: 0, right: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, pointerEvents: 'none' }}>
         <Arrow on={page > 0} onTap={() => jumpTo(page - 1, true)} label="Vorig jaar">‹</Arrow>
-        <h2 style={{ margin: 0 }}>
-          <Dymo>{pages[page]?.year}</Dymo>
+        <h2 style={{ margin: 0, pointerEvents: 'auto' }}>
+          <Press onTap={() => setOverview(true)} label={`Jaar ${pages[page]?.year}, toon alle jaren`}>
+            <Dymo hint>{pages[page]?.year}</Dymo>
+          </Press>
         </h2>
         <Arrow on={page < last} onTap={() => jumpTo(page + 1, true)} label="Volgend jaar">›</Arrow>
       </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {overview && (
+          <Fotodoos
+            pages={pages}
+            current={page}
+            onPick={(p) => {
+              jumpTo(p)
+              setOverview(false)
+            }}
+            onClose={() => setOverview(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

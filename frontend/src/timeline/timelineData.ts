@@ -38,3 +38,12 @@ export function remainingBelow(rows: { top: number; height: number }[], scrollTo
   const fold = scrollTop + clientHeight - FADE
   return rows.filter((r) => r.top + r.height * 0.55 > fold).length
 }
+
+/** The covers of a year's stack in the fotodoos: up to three, bottom to top. */
+export function stackCovers(page: YearPage): string[] {
+  return page.memories.slice(0, 3).map(polaroidCover)
+}
+
+export function countLabel(n: number): string {
+  return n === 1 ? '1 herinnering' : `${n} herinneringen`
+}

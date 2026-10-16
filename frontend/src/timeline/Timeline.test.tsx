@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Memory } from '../catalog/types'
 import { Timeline } from './Timeline'
@@ -36,7 +36,7 @@ test('every Memory appears on the page of its year, and years without Memories h
 test('it opens on the newest year', () => {
   render(<Timeline memories={memories} view={new TimelineView()} onOpen={() => {}} />)
 
-  expect(screen.getByRole('heading', { name: '2023' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: /2023/ })).toBeInTheDocument()
 })
 
 test('only Trips carry the pin badge, with the Destination name', () => {
@@ -67,7 +67,41 @@ test('coming back with the remembered view lands on the same year', () => {
 
   render(<Timeline memories={memories} view={view} onOpen={() => {}} />)
 
-  expect(screen.getByRole('heading', { name: '2016' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: /2016/ })).toBeInTheDocument()
+})
+
+test('tapping the year label opens the overview at the current year, and a tap beside the stacks closes it', async () => {
+  render(<Timeline memories={memories} view={new TimelineView()} onOpen={() => {}} />)
+
+  fireEvent.click(screen.getByRole('button', { name: /toon alle jaren/ }))
+
+  const overview = await screen.findByTestId('fotodoos')
+  expect(within(overview).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['2016, 1 herinnering', '2023, 2 herinneringen'])
+  expect(within(overview).getByTestId('current-year-pin').closest('[data-current]')).toHaveTextContent('2023')
+
+  fireEvent.click(overview)
+  await waitFor(() => expect(screen.queryByTestId('fotodoos')).not.toBeInTheDocument())
+  expect(screen.getByRole('heading', { name: /2023/ })).toBeInTheDocument()
+})
+
+test('pinching the wall opens the overview', async () => {
+  render(<Timeline memories={memories} view={new TimelineView()} onOpen={() => {}} />)
+
+  fireEvent.wheel(window, { ctrlKey: true, deltaY: 20 })
+
+  expect(await screen.findByTestId('fotodoos')).toBeInTheDocument()
+})
+
+test('tapping a stack lands on that year', async () => {
+  const view = new TimelineView()
+  render(<Timeline memories={memories} view={view} onOpen={() => {}} />)
+
+  fireEvent.click(screen.getByRole('button', { name: /toon alle jaren/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '2016, 1 herinnering' }))
+
+  await waitFor(() => expect(screen.queryByTestId('fotodoos')).not.toBeInTheDocument())
+  expect(screen.getByRole('heading', { name: /2016/ })).toBeInTheDocument()
+  expect(view.page).toBe(0)
 })
 
 test('the arrows step to the neighbouring year', () => {
@@ -76,6 +110,6 @@ test('the arrows step to the neighbouring year', () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'Vorig jaar' }))
 
-  expect(screen.getByRole('heading', { name: '2016' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: /2016/ })).toBeInTheDocument()
   expect(view.page).toBe(0)
 })
