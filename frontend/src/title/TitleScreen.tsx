@@ -12,9 +12,9 @@ import { MODE_BG, SF, type Mode } from './modes'
 import { Press } from './Press'
 import { pickCovers, yearRange, type YearRange } from './titleData'
 import './title.css'
-import { BackdropBack, BackdropFront } from './prototype/Backdrop'
-import { Switcher, useThemeVariant } from './prototype/Switcher'
-import type { Theme } from './prototype/themes'
+import { BackdropBack, BackdropFront } from './titlevisuals/Backdrop'
+import { Switcher, useThemeVariant } from './titlevisuals/Switcher'
+import type { Theme } from './titlevisuals/themes'
 
 type Props = {
   memories: Memory[]
