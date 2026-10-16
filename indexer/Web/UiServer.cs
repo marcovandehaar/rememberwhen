@@ -155,29 +155,70 @@ public static class UiServer
             }
         });
 
+        // Adding or removing a Source Folder of a Memory only changes the
+        // configuration and flags the Memory for reindexing (#64); nothing is
+        // rebuilt until the operator reindexes.
+        app.MapPost("/api/memories/folders", (MemoryFolderRequest body) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            try
+            {
+                config.AddSourceFolderToMemory(body.MemoryId, body.Path);
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or KeyNotFoundException)
+            {
+                return Results.BadRequest(new ErrorResponse(ex.Message));
+            }
+
+            config.Save(configPath);
+            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+        });
+
+        app.MapDelete("/api/memories/folders", (string memoryId, string path) =>
+        {
+            var config = IndexerConfig.Load(configPath);
+            try
+            {
+                config.RemoveSourceFolderFromMemory(memoryId, path);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
+            {
+                return Results.BadRequest(new ErrorResponse(ex.Message));
+            }
+
+            config.Save(configPath);
+            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+        });
+
         app.MapPost("/api/folders/index", (IndexFolderRequest body) =>
         {
             var config = IndexerConfig.Load(configPath);
 
-            if (string.IsNullOrWhiteSpace(body.Path) || !config.SourceFolders.Contains(body.Path))
+            // A Memory is built from all its Source Folders (#64); a folder
+            // alone only names the Memory when it is the one it was built from.
+            var target = !string.IsNullOrWhiteSpace(body.MemoryId)
+                ? config.FindById(body.MemoryId)
+                : string.IsNullOrWhiteSpace(body.Path) ? null : config.FindByFolder(body.Path);
+            if (target is null)
                 return Results.BadRequest(new ErrorResponse("Kies een geconfigureerde Source Folder."));
-            if (!Directory.Exists(body.Path))
-                return Results.BadRequest(new ErrorResponse($"Source Folder bestaat niet meer: {body.Path}"));
+            var missing = target.SourceFolders.FirstOrDefault(f => !Directory.Exists(f));
+            if (missing is not null)
+                return Results.BadRequest(new ErrorResponse($"Source Folder bestaat niet meer: {missing}"));
 
-            var existing = config.FindIndexed(body.Path);
+            var sourceFolders = target.SourceFolders.ToList();
+            var existing = target.IndexedAt is null ? null : target;
             var memoryName = string.IsNullOrWhiteSpace(body.MemoryName) ? existing?.Name : body.MemoryName;
+            // No Destination is fine: the Memory is then not a Trip (#64).
             var destinationName = string.IsNullOrWhiteSpace(body.DestinationName) ? existing?.DestinationName : body.DestinationName;
 
             if (string.IsNullOrWhiteSpace(memoryName))
                 return Results.BadRequest(new ErrorResponse("Memory-naam mag niet leeg zijn."));
-            if (string.IsNullOrWhiteSpace(destinationName))
-                return Results.BadRequest(new ErrorResponse("Destination-naam mag niet leeg zijn."));
 
             var newMemoryId = Slug.From(memoryName);
-            var collision = config.Memories.FirstOrDefault(m => m.IndexedAt is not null && m.MemoryId == newMemoryId && !m.SourceFolders.Contains(body.Path));
+            var collision = config.Memories.FirstOrDefault(m => m.IndexedAt is not null && m.MemoryId == newMemoryId && m != target);
             if (collision is not null)
                 return Results.BadRequest(new ErrorResponse(
-                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolders[0]}). Kies een andere Memory-naam."));
+                    $"'{memoryName}' is al in gebruik voor een andere Memory ({collision.SourceFolders[0]}). Kies een andere Memory-naam."));
 
             var (_, gazetteerPath, error) = LoadGazetteer(configPath,
                 r => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {r}. Configureer 'm eerst.")));
@@ -198,7 +239,7 @@ public static class UiServer
                 // its replacement actually landed.
                 var log = new RunLogWriter(state);
                 var gazetteer = Gazetteer.Load(gazetteerPath);
-                var built = CatalogBuilder.Build(body.Path, memoryName, destinationName, gazetteer, outputFolder, curationFolder, log,
+                var built = CatalogBuilder.Build(sourceFolders, memoryName, destinationName, gazetteer, outputFolder, curationFolder, log,
                     onProgress: state.SetProgress, cancellationToken: state.CancellationToken, ffmpegPath: ffmpegPath);
                 var newMemory = built.Memories[0];
 
@@ -236,7 +277,7 @@ public static class UiServer
                 }
 
                 var freshConfig = IndexerConfig.Load(configPath);
-                freshConfig.RecordIndexed(body.Path, newMemory.Id, memoryName, destinationName, newMemory.Date);
+                freshConfig.RecordMemoryIndexed(target.MemoryId, newMemory.Id, memoryName, destinationName, newMemory.Date);
                 freshConfig.Save(configPath);
 
                 state.AppendLog($"Catalogus bijgewerkt: {catalogPath}");
@@ -1026,7 +1067,10 @@ public sealed record PathRequest(string Path);
 
 public sealed record GazetteerEntryRequest(string Name, double Lat, double Lon);
 
-public sealed record IndexFolderRequest(string Path, string? MemoryName, string? DestinationName);
+// MemoryId names the Memory to (re)index; without it the Memory is the one built from Path.
+public sealed record IndexFolderRequest(string? Path, string? MemoryName, string? DestinationName, string? MemoryId = null);
+
+public sealed record MemoryFolderRequest(string MemoryId, string Path);
 
 public sealed record SetCoverRequest(string MemoryId, string ItemId);
 

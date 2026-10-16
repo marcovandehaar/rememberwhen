@@ -10,8 +10,8 @@ namespace Indexer.Config;
 // used.
 
 // V2 (#63) keys the config by Memory instead of by folder. A Source Folder
-// exists only inside a Memory; for now every Memory has exactly one, as
-// before (several per Memory is #64). The settings UI offers "reindex" and
+// exists only inside a Memory; a Memory may have several (#64), and the same
+// folder may feed several Memories (each indexes it on its own). The settings UI offers "reindex" and
 // "remove" on a Memory that is already published, rather than only ever
 // offering a first-time index.
 public sealed class MemoryConfig
@@ -109,9 +109,54 @@ public sealed class IndexerConfig
         });
     }
 
-    // One folder per Memory for now, so removing the folder removes the Memory.
+    // Drops every Memory built from this folder.
     public void RemoveSourceFolder(string path) =>
         Memories.RemoveAll(m => m.SourceFolders.Contains(path));
+
+    public MemoryConfig? FindById(string memoryId) =>
+        Memories.FirstOrDefault(m => m.MemoryId == memoryId);
+
+    private MemoryConfig GetById(string memoryId) =>
+        FindById(memoryId) ?? throw new KeyNotFoundException($"Memory '{memoryId}' bestaat niet.");
+
+    // Only the configuration changes: nothing is rebuilt until the operator
+    // reindexes, which is what NeedsReindex flags. No uniqueness check across
+    // Memories — the same folder may feed several.
+    public void AddSourceFolderToMemory(string memoryId, string path)
+    {
+        var memory = GetById(memoryId);
+        if (!Directory.Exists(path))
+            throw new DirectoryNotFoundException($"Source Folder bestaat niet: {path}");
+        if (memory.SourceFolders.Contains(path)) return;
+
+        memory.SourceFolders.Add(path);
+        memory.NeedsReindex = true;
+    }
+
+    public void RemoveSourceFolderFromMemory(string memoryId, string path)
+    {
+        var memory = GetById(memoryId);
+        if (!memory.SourceFolders.Contains(path)) return;
+        if (memory.SourceFolders.Count == 1)
+            throw new InvalidOperationException("Dit is de laatste Source Folder van deze Memory; die kan niet worden verwijderd.");
+
+        memory.SourceFolders.Remove(path);
+        memory.NeedsReindex = true;
+    }
+
+    // A reindex builds the Memory from its current folder list, so it is the
+    // Memory — not a folder, which several Memories may share — that records
+    // the result: the date its earliest photo gave it, and that it is fresh again.
+    public void RecordMemoryIndexed(string memoryId, string newMemoryId, string memoryName, string? destinationName, DateOnly defaultDate)
+    {
+        var memory = GetById(memoryId);
+        memory.MemoryId = newMemoryId;
+        memory.Name = memoryName;
+        memory.DestinationName = destinationName;
+        memory.DefaultDate = defaultDate;
+        memory.NeedsReindex = false;
+        memory.IndexedAt = DateTimeOffset.UtcNow;
+    }
 
     // Only a Memory that has been indexed: a folder that was just added has
     // nothing published to reindex or remove yet.

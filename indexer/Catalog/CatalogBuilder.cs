@@ -4,7 +4,8 @@ using Indexer.Media;
 
 namespace Indexer.Catalog;
 
-// One Source Folder, one Memory, split into real Chapters per #20/#31's
+// One Memory from all its Source Folders (#64: their files pool into one
+// chronological sequence), split into real Chapters per #20/#31's
 // two-layer heuristic (see ChapterBoundaries), with anomalies (a wrong
 // camera clock, files with no capture time) surfaced and defaulted per
 // #19/#33 (see AnomalyDetector) rather than silently placed on file mtime.
@@ -14,10 +15,26 @@ public static class CatalogBuilder
 {
     private const double DefaultShotDuration = 4.0;
 
+    // The one-folder form, kept for the CLI and the many callers that only have one.
     public static RwCatalog Build(
         string sourceFolder,
         string memoryName,
-        string destinationName,
+        string? destinationName,
+        Gazetteer gazetteer,
+        string outputFolder,
+        string curationFolder,
+        TextWriter? log = null,
+        Action<int, int>? onProgress = null,
+        CancellationToken cancellationToken = default,
+        string? ffmpegPath = null,
+        TimeSpan? retryDelay = null) =>
+        Build([sourceFolder], memoryName, destinationName, gazetteer, outputFolder, curationFolder, log, onProgress, cancellationToken, ffmpegPath, retryDelay);
+
+    public static RwCatalog Build(
+        IReadOnlyList<string> sourceFolders,
+        string memoryName,
+        // Null: the Memory is not a Trip, so there is nothing to look up in the Gazetteer.
+        string? destinationName,
         Gazetteer gazetteer,
         string outputFolder,
         string curationFolder,
@@ -47,11 +64,12 @@ public static class CatalogBuilder
         // Cheap and fast, so it goes first: an unseeded Destination fails here
         // instead of after the slow read-and-publish pass over every file,
         // which can take minutes over a NAS share (#38).
-        var destinationCoordinate = gazetteer.Lookup(destinationName);
+        var destinationCoordinate = destinationName is null ? (Coordinate?)null : gazetteer.Lookup(destinationName);
 
-        var files = SourceFolderReader.Read(sourceFolder, log);
+        var where = string.Join(", ", sourceFolders);
+        var files = SourceFolderReader.ReadAll(sourceFolders, log);
         if (files.Count == 0)
-            throw new InvalidOperationException($"Geen ondersteunde media gevonden in {sourceFolder}.");
+            throw new InvalidOperationException($"Geen ondersteunde media gevonden in {where}.");
 
         // Cover = the earliest Media Item that's a photo (CONTEXT.md: Memory
         // calls it "the photo shown on its globe pin" — a video can't be
@@ -60,7 +78,7 @@ public static class CatalogBuilder
         // read-and-publish pass rather than discovered partway through it.
         if (files.All(f => f.IsVideo))
             throw new InvalidOperationException(
-                $"Geen enkele foto in {sourceFolder}: de cover is altijd een foto (CONTEXT.md: Memory), en deze map bevat alleen video's.");
+                $"Geen enkele foto in {where}: de cover is altijd een foto (CONTEXT.md: Memory), en deze map bevat alleen video's.");
 
         using var videoReader = new VideoMetadataReader();
 
@@ -86,10 +104,10 @@ public static class CatalogBuilder
         }
 
         if (read.Count == 0)
-            throw new InvalidOperationException($"Geen enkel bestand in {sourceFolder} was leesbaar; zie de regels hierboven.");
+            throw new InvalidOperationException($"Geen enkel bestand in {where} was leesbaar; zie de regels hierboven.");
         if (read.All(entry => entry.Kind == MediaKind.Video))
             throw new InvalidOperationException(
-                $"Geen enkele foto in {sourceFolder} was leesbaar: de cover is altijd een foto (CONTEXT.md: Memory).");
+                $"Geen enkele foto in {where} was leesbaar: de cover is altijd een foto (CONTEXT.md: Memory).");
 
         var detection = AnomalyDetector.Detect(read
             .Select(entry => new AnomalyDetector.MediaFact(
@@ -251,7 +269,7 @@ public static class CatalogBuilder
 
         if (coverImage is null)
             throw new InvalidOperationException(
-                $"Geen enkele foto in {sourceFolder} kon als cover worden gepubliceerd; zie de regels hierboven.");
+                $"Geen enkele foto in {where} kon als cover worden gepubliceerd; zie de regels hierboven.");
 
         if (skipped.Count > 0)
             log.WriteLine($"Let op: {skipped.Count} bestand(en) overgeslagen en niet in deze Memory opgenomen: {string.Join(", ", skipped)}");
@@ -260,7 +278,7 @@ public static class CatalogBuilder
         {
             Id = memoryId,
             Name = memoryName,
-            Destination = new RwDestination(destinationName, destinationCoordinate),
+            Destination = destinationName is null ? null : new RwDestination(destinationName, destinationCoordinate!.Value),
             // Corrected capture time, not the raw EXIF one: a reset camera
             // clock would otherwise date the whole Memory months too early.
             Date = DateOnly.FromDateTime(ordered[0].EffectiveCapturedAt.DateTime),

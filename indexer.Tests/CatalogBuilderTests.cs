@@ -477,4 +477,70 @@ public class CatalogBuilderTests : IDisposable
         Assert.Equal(2, catalog.Memories[0].Chapters.Sum(chapter => chapter.MediaItems.Count));
         Assert.DoesNotContain("Overgeslagen", log.ToString());
     }
+
+    private string MakeFolder(string name)
+    {
+        var path = Path.Combine(Path.GetDirectoryName(_sourceDir)!, name);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    [Fact]
+    public void A_memory_from_two_folders_is_one_chronological_sequence_with_chapters_across_both()
+    {
+        var first = MakeFolder("first");
+        var second = MakeFolder("second");
+        TestImages.WriteJpeg(Path.Combine(first, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(first, "c.jpg"), 800, 600, new DateTime(2016, 7, 10, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(second, "b.jpg"), 800, 600, new DateTime(2016, 7, 5, 9, 0, 0));
+
+        var catalog = CatalogBuilder.Build([first, second], "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+        var memory = Assert.Single(catalog.Memories);
+        var items = memory.Chapters.SelectMany(c => c.MediaItems).ToList();
+        Assert.Equal(3, items.Count);
+        Assert.Equal(items.OrderBy(i => i.CapturedAt), items);
+        // July 1 -> 5 -> 10 leaves two empty days each time: three Chapters, each from the other folder than its neighbour.
+        Assert.Equal(3, memory.Chapters.Count);
+    }
+
+    [Fact]
+    public void Nested_folders_do_not_produce_duplicate_media_items()
+    {
+        var parent = MakeFolder("trip");
+        var child = Path.Combine(parent, "day2");
+        Directory.CreateDirectory(child);
+        TestImages.WriteJpeg(Path.Combine(parent, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(child, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
+
+        var catalog = CatalogBuilder.Build([parent, child], "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+        Assert.Equal(2, catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).Count());
+    }
+
+    [Fact]
+    public void One_folder_in_two_memories_publishes_two_independent_memories_without_filename_collisions()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+
+        var one = CatalogBuilder.Build([_sourceDir], "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
+        var two = CatalogBuilder.Build([_sourceDir], "Zomer in Zeeland", null, gazetteer, _outputDir, _curationDir, TextWriter.Null);
+
+        static IEnumerable<string> Files(RwMemory m) =>
+            m.Chapters.SelectMany(c => c.MediaItems).Select(i => i.MediaRef).Append(m.CoverImage).Append(m.CoverPhoto!);
+        Assert.Empty(Files(one.Memories[0]).Intersect(Files(two.Memories[0])));
+        Assert.All(Files(one.Memories[0]).Concat(Files(two.Memories[0])), f => Assert.True(File.Exists(Path.Combine(_outputDir, f))));
+    }
+
+    [Fact]
+    public void A_memory_without_a_destination_builds_even_when_the_gazetteer_knows_nothing()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+
+        var catalog = CatalogBuilder.Build([_sourceDir], "Verjaardag Opa", null, Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+        Assert.Null(catalog.Memories[0].Destination);
+        Assert.Equal(new DateOnly(2016, 7, 1), catalog.Memories[0].Date);
+    }
 }
