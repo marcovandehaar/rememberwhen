@@ -12,8 +12,8 @@ import { MODE_BG, SF, type Mode } from './modes'
 import { Press } from './Press'
 import { pickCovers, yearRange, type YearRange } from './titleData'
 import './title.css'
-import { BackdropBack, BackdropFront } from './prototype/Backdrop'
-import { CloudStage, PuffCloud } from './prototype/PuffCloud'
+import { BackdropBack, BackdropFront, LIGHT_A } from './prototype/Backdrop'
+import { LitPuffs } from './prototype/LitPuffs'
 import { Switcher, useThemeVariant } from './prototype/Switcher'
 import type { Theme } from './prototype/themes'
 
@@ -345,15 +345,15 @@ function ReturnVeil({ from }: { from: Mode }) {
   )
 }
 
-// PROTOTYPE (#75): the clouds we fall through, made like the lit clouds of the
-// scene itself: the same shaded puffs, only bright and sunlit all through.
-const INTRO_THEME: Theme = { key: 'intro', name: '', sky: '', sun: { x: 50, y: 40 }, light: '#fff4d6', shade: '#bdb7a4', title: ['', '', ''], glint: ['', '', ''] }
+// PROTOTYPE (#75): the clouds we fall through are the original ones, lit like the scene's.
+const LIGHT_INTRO = { sun: LIGHT_A.sun, lit: '#ffe2a0', body: '#fbf6ec', shadow: '#aebfc0' }
 function IntroClouds({ seed }: { seed: number }) {
+  const spots: [number, number, number][] = [[0, 0, 0], [40, 10, 10], [0, 45, 20], [40, 50, 30]]
   return (
-    <CloudStage>
-      {[[25, 28, 0], [76, 36, 10], [24, 72, 20], [74, 74, 30]].map(([x, y, d]) => (
-        <PuffCloud key={d} theme={INTRO_THEME} x={x} y={y} w={760} h={460} seed={seed + d} puffs={20} lift={0.35} />
+    <>
+      {spots.map(([l, tp, d]) => (
+        <LitPuffs key={d} seed={seed + d} puffs={10} light={LIGHT_INTRO} at={{ x: l + 30, y: tp + 30 }} style={{ left: `${l}%`, top: `${tp}%`, width: '60%', height: '60%' }} />
       ))}
-    </CloudStage>
+    </>
   )
 }
