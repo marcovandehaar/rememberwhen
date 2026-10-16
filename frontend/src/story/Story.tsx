@@ -9,6 +9,8 @@ import { ScrubBar } from './ScrubBar'
 import { scrollProgress } from './scrollProgress'
 import { useContainerAspect } from './useContainerAspect'
 import { useScrollWindow } from './useScrollWindow'
+import { backLabel, titleLabel } from './titleLabel'
+import type { Mode } from '../title/modes'
 
 type NaturalSize = { width: number; height: number }
 // Assumed until the real image loads and reports its own size — zero
@@ -17,10 +19,13 @@ const FALLBACK_SIZE: NaturalSize = { width: 0, height: 0 }
 
 export function Story({
   memory,
+  from,
   onOpenItem,
   onBack,
 }: {
   memory: Memory
+  /** The mode the Story was opened from, and where back goes. */
+  from: Mode
   // startAt: the inline video's own currentTime, so the Lightbox picks up
   // exactly where the muted preview left off — the spec's "tapping doesn't
   // start playback, it's already playing" (#35) means no visible restart.
@@ -144,7 +149,7 @@ export function Story({
       <button
         type="button"
         onClick={onBack}
-        aria-label="Terug naar de globe"
+        aria-label={backLabel(from)}
         style={{
           position: 'fixed',
           top: 'calc(env(safe-area-inset-top, 0px) + 14px)',
@@ -163,7 +168,7 @@ export function Story({
           cursor: 'pointer',
         }}
       >
-        ← <GlobeIcon size={20} />
+        ← {from === 'globe' ? <GlobeIcon size={20} /> : <PolaroidIcon size={20} />}
       </button>
 
       <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
@@ -259,6 +264,15 @@ export function Story({
   )
 }
 
+function PolaroidIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="4" y="2.5" width="16" height="19" rx="1.5" />
+      <rect x="7" y="5.5" width="10" height="10" rx="0.5" />
+    </svg>
+  )
+}
+
 function GlobeIcon({ size = 15 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -332,7 +346,7 @@ function CascadeTitle({ memory }: { memory: Memory }) {
             backdropFilter: 'blur(4px)',
           }}
         >
-          {memory.destination?.name}
+          {titleLabel(memory)}
         </motion.div>
         <motion.div
           initial="hidden"
@@ -377,7 +391,7 @@ function RevealTitle({ memory }: { memory: Memory }) {
     <div style={TITLE_SCRIM}>
       <div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.75, transition: { duration: 0.4 } }} style={TITLE_LABEL}>
-          {memory.destination?.name}
+          {titleLabel(memory)}
         </motion.div>
         <motion.div
           initial="hidden"

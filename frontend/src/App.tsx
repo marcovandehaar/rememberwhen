@@ -57,7 +57,7 @@ function App() {
       {!selected && <BackToTitle onBack={backToTitle} light={mode === 'timeline'} />}
       {!selected && <ArriveVeil key={mode} mode={mode} />}
       {selected && (
-        <Story memory={selected} onOpenItem={(item, startAt) => setOpenItem({ item, startAt })} onBack={backToMode} />
+        <Story memory={selected} from={mode} onOpenItem={(item, startAt) => setOpenItem({ item, startAt })} onBack={backToMode} />
       )}
       {openItem && <Lightbox item={openItem.item} startAt={openItem.startAt} onClose={() => setOpenItem(null)} />}
     </>
