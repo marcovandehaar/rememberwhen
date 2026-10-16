@@ -27,6 +27,7 @@ indexer/config.json
 # PendingPublish.cs. Operator-lokale staat, net als config.json hierboven.
 indexer/pending-publish.json
 indexer/migration-v2.json
+indexer/*.pre-v2.bak
 
 ### Frontend (Vite)
 frontend/node_modules/
