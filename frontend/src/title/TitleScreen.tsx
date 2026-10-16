@@ -139,7 +139,7 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose, theme 
       </motion.div>}
 
       {/* the clouds we descend through */}
-      {!settled && <Descent />}
+      {!settled && <Descent warm={theme?.key === 'A'} />}
 
       {returningFrom && <ReturnVeil from={returningFrom} />}
     </motion.div>
@@ -302,16 +302,22 @@ function MiniEarth({ size }: { size: string }) {
 }
 
 // Cloud white first, then three layers that swell past the camera and fade.
-function Descent() {
+// PROTOTYPE (#75): with a theme the clouds we fall through take on the scene's golden hour,
+// deepening from cream to amber towards the sea of clouds they land in.
+const WARM_DESCENT = { veil: '#f6dfb4', layers: ['255,240,212', '255,228,184', '247,206,148'] }
+const PLAIN_DESCENT = { veil: '#f6f2ee', layers: ['250,247,244', '250,247,244', '250,247,244'] }
+
+function Descent({ warm }: { warm: boolean }) {
+  const look = warm ? WARM_DESCENT : PLAIN_DESCENT
   return (
     <>
       <motion.div
         initial={{ opacity: 1 }}
         animate={{ opacity: 0 }}
         transition={{ duration: 0.9, delay: 0.1 }}
-        style={{ position: 'absolute', inset: 0, background: '#f6f2ee', zIndex: 20, pointerEvents: 'none' }}
+        style={{ position: 'absolute', inset: 0, background: look.veil, zIndex: 20, pointerEvents: 'none' }}
       />
-      {DESCENT_LAYERS.map((layer) => (
+      {DESCENT_LAYERS.map((layer, n) => (
         <motion.div
           key={layer.seed}
           initial={{ scale: 1, opacity: 1 }}
@@ -320,10 +326,10 @@ function Descent() {
           style={{ position: 'absolute', inset: '-20%', zIndex: 21, pointerEvents: 'none' }}
         >
           <>
-          <Cloud seed={layer.seed} color="250,247,244" puffs={10} style={{ left: 0, top: '0%', width: '60%', height: '60%' }} />
-          <Cloud seed={layer.seed + 10} color="250,247,244" puffs={10} style={{ left: '40%', top: '10%', width: '60%', height: '60%' }} />
-          <Cloud seed={layer.seed + 20} color="250,247,244" puffs={10} style={{ left: '0%', top: '45%', width: '60%', height: '60%' }} />
-          <Cloud seed={layer.seed + 30} color="250,247,244" puffs={10} style={{ left: '40%', top: '50%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed} color={look.layers[n]} puffs={10} style={{ left: 0, top: '0%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed + 10} color={look.layers[n]} puffs={10} style={{ left: '40%', top: '10%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed + 20} color={look.layers[n]} puffs={10} style={{ left: '0%', top: '45%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed + 30} color={look.layers[n]} puffs={10} style={{ left: '40%', top: '50%', width: '60%', height: '60%' }} />
           </>
         </motion.div>
       ))}
