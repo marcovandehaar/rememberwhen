@@ -114,15 +114,18 @@ function Polaroid({ memory, i, active, settledBefore, onSettled, onOpen }: {
     if (settled) onSettled()
   }, [settled, onSettled])
 
+  const timer = useRef<number>(undefined)
+  // Leaving mid-lift (the sun button) must not open a Story behind it.
+  useEffect(() => () => window.clearTimeout(timer.current), [])
   const open = () => {
     if (lifting) return
     setLifting(true)
-    window.setTimeout(() => onOpen(memory), LIFT_MS)
+    timer.current = window.setTimeout(() => onOpen(memory), LIFT_MS)
   }
 
   return (
     <motion.div
-      initial={false}
+      initial={settledBefore ? false : { rotate: tilt * 2.6, y: -18, scale: 1.04 }}
       animate={lifting ? { rotate: 0, y: -14, scale: 1.08 } : settled ? { rotate: tilt, y: 0, scale: 1 } : { rotate: tilt * 2.6, y: -18, scale: 1.04 }}
       transition={lifting ? { duration: 0.18, ease: 'easeOut' } : { type: 'spring', stiffness: 220, damping: 15, delay: settled && !settledBefore ? (i % 6) * 0.05 : 0 }}
       style={{ marginTop: DROPS[i % 6], width: 'min(40vw, 300px)', position: 'relative', zIndex: lifting ? 5 : 1 }}
@@ -293,10 +296,13 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
   const last = pages.length - 1
   const pager = useRef<HTMLDivElement>(null)
   const [page, setPage] = useState(() => Math.min(view.page ?? last, last))
+  // While an arrow's smooth scroll is under way, scroll events must not pull the page back to the old year.
+  const heading = useRef<number | null>(null)
 
   const jumpTo = (p: number, smooth = false) => {
     const el = pager.current
     if (!el) return
+    heading.current = smooth ? p : null
     el.scrollTo({ left: el.clientWidth * p, behavior: smooth ? 'smooth' : 'instant' })
     setPage(p)
     view.showPage(p)
@@ -310,6 +316,10 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
     if (!el) return
     el.style.setProperty('--sx', `${el.scrollLeft}px`)
     const p = Math.round(el.scrollLeft / el.clientWidth)
+    if (heading.current !== null) {
+      if (p !== heading.current) return
+      heading.current = null
+    }
     if (p !== page) {
       setPage(p)
       view.showPage(p)
