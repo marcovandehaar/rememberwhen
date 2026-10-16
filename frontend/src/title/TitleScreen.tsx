@@ -1,5 +1,5 @@
 // The title screen (#58): the first thing on every launch. Fly down through
-// three layers of flat clouds onto a sea of clouds under a low sun; two
+// three layers of flat clouds onto a sea of golden-hour clouds under a low sun; two
 // windows rise out of it, and the chosen one grows into the mode.
 // CSS only: every moving part is a transform or opacity on layered gradients,
 // never an animated blur, so an older iPad can keep up.
@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { Memory } from '../catalog/types'
 import { EARTH_TEXTURES } from '../globe/textures'
 import { Cloud } from './Cloud'
+import { SkyCloud } from './SkyCloud'
 import { MODE_BG, SF, type Mode } from './modes'
 import { Press } from './Press'
 import { pickCovers, yearRange, type YearRange } from './titleData'
@@ -25,6 +26,9 @@ const LEAVE_MS = 520
 // The intro is over once the windows have settled; until then a tap skips it.
 const INTRO_MS = 3300
 const COVERS_IN_STRIP = 8
+
+// A deep teal sky turning to amber at the horizon.
+const SKY = 'linear-gradient(180deg, #0c3238 0%, #25555a 28%, #8a6a45 52%, #e0914a 68%, #f7bd6a 80%, #ffe0a0 100%)'
 
 const TITLE_FONT = `200 min(8.6vw, 80px)/1.1 ${SF}`
 
@@ -103,14 +107,17 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose }: {
         inset: 0,
         overflow: 'hidden',
         userSelect: 'none',
-        background: 'linear-gradient(180deg, #10275a 0%, #4f72b8 45%, #e9b78e 74%, #fde6c8 100%)',
+        background: SKY,
       }}
     >
-      {/* low sun on the cloud horizon */}
-      <div style={{ position: 'absolute', left: '50%', bottom: '24%', width: 0, height: 0 }}>
-        <div style={{ position: 'absolute', width: '120vmin', height: '70vmin', left: '-60vmin', top: '-35vmin', borderRadius: '50%', background: 'radial-gradient(closest-side, rgba(255,220,160,.6), rgba(255,200,150,0))' }} />
-        <div style={{ position: 'absolute', width: '20vmin', height: '20vmin', left: '-10vmin', top: '-10vmin', borderRadius: '50%', background: 'radial-gradient(closest-side, #fffaf0, #ffd99a 60%, rgba(255,200,130,0))' }} />
+      {/* low sun on the cloud horizon, behind the towers of cloud either side of the windows */}
+      <div style={{ position: 'absolute', left: '50%', top: '74%', width: 0, height: 0 }}>
+        <div style={{ position: 'absolute', width: '150vmin', height: '90vmin', left: '-75vmin', top: '-45vmin', borderRadius: '50%', background: 'radial-gradient(closest-side, rgba(255,214,140,.75), rgba(255,170,90,.25) 55%, rgba(255,170,90,0))' }} />
+        <div style={{ position: 'absolute', width: '14vmin', height: '14vmin', left: '-7vmin', top: '-7vmin', borderRadius: '50%', background: 'radial-gradient(closest-side, #fffdf4, #ffe9b0 55%, rgba(255,220,150,0))' }} />
       </div>
+      <SkyCloud seed={4} x={6} y={66} w={560} h={320} sprites={16} />
+      <SkyCloud seed={11} x={94} y={64} w={560} h={320} sprites={16} />
+      <SkyCloud seed={17} x={50} y={76} w={480} h={200} sprites={12} />
 
       <Title delay={at(1.2)} settled={settled} hidden={leaving !== null} />
 
@@ -121,11 +128,11 @@ function Scene({ covers, years, settled, returningFrom, fadeIn, onChoose }: {
       <motion.div
         animate={{ opacity: leaving ? 0 : 1 }}
         transition={{ duration: 0.2 }}
-        style={{ position: 'absolute', left: '-10%', right: '-10%', bottom: '-8%', height: '30%', zIndex: 3, pointerEvents: 'none', animation: 'rw-drift 16s ease-in-out infinite alternate' }}
+        style={{ position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none', animation: 'rw-drift 16s ease-in-out infinite alternate' }}
       >
-        <Cloud seed={31} color="255,246,238" puffs={16} style={{ left: 0, width: '55%', top: '10%', height: '100%' }} />
-        <Cloud seed={32} color="255,240,232" puffs={16} style={{ left: '30%', width: '45%', top: '22%', height: '100%' }} />
-        <Cloud seed={33} color="255,246,238" puffs={16} style={{ left: '55%', width: '50%', top: '8%', height: '100%' }} />
+        <SkyCloud seed={31} x={12} y={104} w={1000} h={200} sprites={24} />
+        <SkyCloud seed={32} x={50} y={107} w={1100} h={210} sprites={26} />
+        <SkyCloud seed={33} x={88} y={104} w={1000} h={200} sprites={24} />
       </motion.div>
 
       {/* the clouds we descend through */}
@@ -292,6 +299,11 @@ function MiniEarth({ size }: { size: string }) {
 }
 
 // Cloud white first, then three layers that swell past the camera and fade.
+// The clouds we fall through take on the golden hour: cream, deepening to amber
+// towards the sea of clouds they land in.
+const DESCENT_VEIL = '#f8e8c8'
+const DESCENT_COLORS = ['255,246,226', '255,238,201', '250,222,170']
+
 function Descent() {
   return (
     <>
@@ -299,9 +311,9 @@ function Descent() {
         initial={{ opacity: 1 }}
         animate={{ opacity: 0 }}
         transition={{ duration: 0.9, delay: 0.1 }}
-        style={{ position: 'absolute', inset: 0, background: '#f6f2ee', zIndex: 20, pointerEvents: 'none' }}
+        style={{ position: 'absolute', inset: 0, background: DESCENT_VEIL, zIndex: 20, pointerEvents: 'none' }}
       />
-      {DESCENT_LAYERS.map((layer) => (
+      {DESCENT_LAYERS.map((layer, n) => (
         <motion.div
           key={layer.seed}
           initial={{ scale: 1, opacity: 1 }}
@@ -309,10 +321,10 @@ function Descent() {
           transition={{ duration: 1.7, delay: layer.delay, ease: [0.5, 0, 0.75, 0] }}
           style={{ position: 'absolute', inset: '-20%', zIndex: 21, pointerEvents: 'none' }}
         >
-          <Cloud seed={layer.seed} color="250,247,244" puffs={10} style={{ left: 0, top: '0%', width: '60%', height: '60%' }} />
-          <Cloud seed={layer.seed + 10} color="250,247,244" puffs={10} style={{ left: '40%', top: '10%', width: '60%', height: '60%' }} />
-          <Cloud seed={layer.seed + 20} color="250,247,244" puffs={10} style={{ left: '0%', top: '45%', width: '60%', height: '60%' }} />
-          <Cloud seed={layer.seed + 30} color="250,247,244" puffs={10} style={{ left: '40%', top: '50%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed} color={DESCENT_COLORS[n]} puffs={10} style={{ left: 0, top: '0%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed + 10} color={DESCENT_COLORS[n]} puffs={10} style={{ left: '40%', top: '10%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed + 20} color={DESCENT_COLORS[n]} puffs={10} style={{ left: '0%', top: '45%', width: '60%', height: '60%' }} />
+          <Cloud seed={layer.seed + 30} color={DESCENT_COLORS[n]} puffs={10} style={{ left: '40%', top: '50%', width: '60%', height: '60%' }} />
         </motion.div>
       ))}
     </>
