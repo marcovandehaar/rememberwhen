@@ -304,7 +304,7 @@ function MiniEarth({ size }: { size: string }) {
 // Cloud white first, then three layers that swell past the camera and fade.
 // PROTOTYPE (#75): with a theme the clouds we fall through take on the scene's golden hour,
 // deepening from cream to amber towards the sea of clouds they land in.
-const WARM_DESCENT = { veil: '#f6dfb4', layers: ['255,240,212', '255,228,184', '247,206,148'] }
+const WARM_DESCENT = { veil: '#f8e8c8', layers: ['255,246,226', '255,238,201', '250,222,170'] }
 const PLAIN_DESCENT = { veil: '#f6f2ee', layers: ['250,247,244', '250,247,244', '250,247,244'] }
 
 function Descent({ warm }: { warm: boolean }) {
