@@ -65,6 +65,7 @@ function TripBadge({ name }: { name: string }) {
 
 const TILTS = [-3.5, 2.5, -1.5, 3.5, -2.5, 1.8]
 const DROPS = [0, 30, 10, 38, 6, 22]
+const PINCH_COOLDOWN_MS = 500
 /** A tapped polaroid lifts this long before its Story opens. */
 const LIFT_MS = 190
 
@@ -271,6 +272,14 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
   // While an arrow's smooth scroll is under way, scroll events must not pull the page back to the old year.
   const heading = useRef<number | null>(null)
   const [overview, setOverview] = useState(false)
+  // Pinch inertia keeps delivering events after the overview closed; they must not reopen it.
+  const quietUntil = useRef(0)
+  const overviewOpen = useRef(false)
+  const showOverview = (open: boolean) => {
+    overviewOpen.current = open
+    if (!open) quietUntil.current = Date.now() + PINCH_COOLDOWN_MS
+    setOverview(open)
+  }
 
   const jumpTo = (p: number, smooth = false) => {
     const el = pager.current
@@ -302,12 +311,12 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
   // Pinching the wall (Safari's gesture events; ctrl+wheel is a trackpad pinch on desktop) opens the overview too.
   useEffect(() => {
     const onGesture = (ev: Event) => {
-      if ((ev as Event & { scale: number }).scale < 0.8) setOverview(true)
+      if (!overviewOpen.current && Date.now() >= quietUntil.current && (ev as Event & { scale: number }).scale < 0.8) showOverview(true)
     }
     const onWheel = (ev: WheelEvent) => {
       if (ev.ctrlKey && ev.deltaY > 4) {
         ev.preventDefault()
-        setOverview(true)
+        if (!overviewOpen.current && Date.now() >= quietUntil.current) showOverview(true)
       }
     }
     document.addEventListener('gesturechange', onGesture)
@@ -321,6 +330,7 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
   return (
     <div style={{ position: 'fixed', inset: 0, ...WALL, color: INK, fontFamily: SF, userSelect: 'none' }}>
       <motion.div
+        inert={overview}
         animate={overview ? { scale: 0.82, opacity: 0 } : { scale: 1, opacity: 1 }}
         transition={{ duration: 0.18, ease: 'easeOut' }}
         style={{ position: 'absolute', inset: 0 }}
@@ -335,7 +345,7 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
       <div style={{ position: 'absolute', top: 'calc(22px + env(safe-area-inset-top))', left: 0, right: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, pointerEvents: 'none' }}>
         <Arrow on={page > 0} onTap={() => jumpTo(page - 1, true)} label="Vorig jaar">‹</Arrow>
         <h2 style={{ margin: 0, pointerEvents: 'auto' }}>
-          <Press onTap={() => setOverview(true)} label={`Jaar ${pages[page]?.year}, toon alle jaren`}>
+          <Press onTap={() => showOverview(true)} label={`Jaar ${pages[page]?.year}, toon alle jaren`}>
             <Dymo hint>{pages[page]?.year}</Dymo>
           </Press>
         </h2>
@@ -350,9 +360,9 @@ export function Timeline({ memories, view, onOpen }: { memories: Memory[]; view:
             current={page}
             onPick={(p) => {
               jumpTo(p)
-              setOverview(false)
+              showOverview(false)
             }}
-            onClose={() => setOverview(false)}
+            onClose={() => showOverview(false)}
           />
         )}
       </AnimatePresence>

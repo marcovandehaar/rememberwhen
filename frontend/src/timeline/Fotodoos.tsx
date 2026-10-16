@@ -49,9 +49,11 @@ export function Fotodoos({ pages, current, onPick, onClose }: {
         }}
       >
         {pages.map((page, k) => (
-          <div key={page.year} onClick={(ev) => ev.stopPropagation()} data-current={k === current ? '' : undefined}>
+          <div key={page.year} data-current={k === current ? '' : undefined}>
+            {/* only the stack and its label count as a tap on the year; the rest of the cell closes the overview */}
+            <div onClick={(ev) => ev.stopPropagation()} style={{ width: '78%', margin: '0 auto' }}>
             <Press onTap={() => onPick(k)} label={`${page.year}, ${countLabel(page.memories.length)}`} style={{ display: 'block', width: '100%' }}>
-              <div style={{ position: 'relative', aspectRatio: '0.86', margin: '0 auto', width: '78%' }}>
+              <div style={{ position: 'relative', aspectRatio: '0.86' }}>
                 {stackCovers(page).map((cover, s) => (
                   <div
                     key={s}
@@ -93,6 +95,7 @@ export function Fotodoos({ pages, current, onPick, onClose }: {
                 <div style={{ marginTop: 8, font: `400 13px/1 ${SF}`, color: INK, opacity: 0.55 }}>{countLabel(page.memories.length)}</div>
               </div>
             </Press>
+            </div>
           </div>
         ))}
       </div>
