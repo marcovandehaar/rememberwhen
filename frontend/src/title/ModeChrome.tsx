@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { MODE_BG, SF, type Mode } from './modes'
+import { MODE_BG, type Mode } from './modes'
 import { Press } from './Press'
 
 // Same control in both modes: a small sun-over-the-horizon mark, the title
@@ -32,15 +32,6 @@ export function BackToTitle({ onBack, light = false }: { onBack: () => void; lig
         </div>
       </Press>
     </motion.div>
-  )
-}
-
-// Stand-in until the timeline itself (its own issue) replaces it.
-export function TimelinePlaceholder() {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: MODE_BG.timeline, display: 'grid', placeItems: 'center', color: '#2a2018', font: `600 44px/1 ${SF}`, letterSpacing: '-.02em' }}>
-      Door de jaren
-    </div>
   )
 }
 

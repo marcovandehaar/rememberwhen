@@ -4,8 +4,10 @@ import { Globe } from './globe/Globe'
 import { Story } from './story/Story'
 import { Lightbox } from './story/Lightbox'
 import type { Mode } from './title/modes'
-import { ArriveVeil, BackToTitle, TimelinePlaceholder } from './title/ModeChrome'
+import { ArriveVeil, BackToTitle } from './title/ModeChrome'
 import { TitleScreen } from './title/TitleScreen'
+import { Timeline } from './timeline/Timeline'
+import { TimelineView } from './timeline/timelineView'
 
 // #30: the real Indexer publishes catalog.json (+ media/) to the webroot
 // root, alongside this app — see deploy-nas.ps1's -IndexerOutput.
@@ -17,6 +19,8 @@ function App() {
   // outlives a trip back to it, so the globe is on Europe again next time.
   const [mode, setMode] = useState<Mode | null>(null)
   const [returningFrom, setReturningFrom] = useState<Mode | null>(null)
+  // Where the timeline was, for the way back from a Story; a trip to the title clears it.
+  const [timelineView, setTimelineView] = useState(() => new TimelineView())
   const [selected, setSelected] = useState<Memory | null>(null)
   const [openItem, setOpenItem] = useState<{ item: MediaItem; startAt?: number } | null>(null)
 
@@ -42,13 +46,14 @@ function App() {
   }
   const backToTitle = () => {
     setReturningFrom(mode)
+    setTimelineView(new TimelineView())
     setMode(null)
   }
 
   return (
     <>
       {!selected && mode === 'globe' && <Globe memories={catalog.memories} onSelect={setSelected} />}
-      {!selected && mode === 'timeline' && <TimelinePlaceholder />}
+      {!selected && mode === 'timeline' && <Timeline memories={catalog.memories} view={timelineView} onOpen={setSelected} />}
       {!selected && <BackToTitle onBack={backToTitle} light={mode === 'timeline'} />}
       {!selected && <ArriveVeil key={mode} mode={mode} />}
       {selected && (

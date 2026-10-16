@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App'
 
 // react-globe.gl needs a real WebGL context, which jsdom doesn't provide.
@@ -10,6 +10,10 @@ vi.mock('./globe/Globe', () => ({
     <div data-testid="globe">{memories.map((m) => m.destination?.name).join(',')}</div>
   ),
 }))
+
+beforeEach(() => {
+  Element.prototype.scrollTo = vi.fn() as unknown as typeof Element.prototype.scrollTo
+})
 
 afterEach(() => {
   cleanup()
@@ -60,12 +64,13 @@ test('choosing "De wereld rond" opens the globe with the catalogue, and the sun 
   expect(screen.queryByTestId('title-skip')).not.toBeInTheDocument()
 })
 
-test('choosing "Door de jaren" opens the timeline placeholder', async () => {
+test('choosing "Door de jaren" opens the timeline on the newest year', async () => {
   stubCatalogFetch()
   render(<App />)
 
   fireEvent.click(await screen.findByRole('button', { name: /Door de jaren/ }))
 
-  expect(await screen.findByRole('button', { name: 'Terug naar het beginscherm' }, { timeout: 2000 })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '2026' }, { timeout: 2000 })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Terug naar het beginscherm' })).toBeInTheDocument()
   expect(screen.queryByTestId('globe')).not.toBeInTheDocument()
 })
