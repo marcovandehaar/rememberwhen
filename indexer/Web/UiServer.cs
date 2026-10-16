@@ -230,6 +230,7 @@ public static class UiServer
                     // content-wise, since there's no cheap way to tell those
                     // apart without reading each file back.
                     MediaVersion.Touch(newMemory.CoverImage);
+                    if (newMemory.CoverPhoto is not null) MediaVersion.Touch(newMemory.CoverPhoto);
                     foreach (var mediaRef in newMemory.Chapters.SelectMany(c => c.MediaItems).Select(i => i.MediaRef))
                         MediaVersion.Touch(mediaRef);
                 }
@@ -462,21 +463,27 @@ public static class UiServer
                 // From the item's own already-published derivative, same as the
                 // rest of this review screen — never the original source file.
                 var thumbFileName = $"{item.Id}-thumb.jpg";
-                DerivativeGenerator.GeneratePinThumbnail(
-                    Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
+                var photoFileName = $"{item.Id}-cover.jpg";
+                var storyPath = Path.Combine(outputFolder, item.MediaRef);
+                DerivativeGenerator.GeneratePinThumbnail(storyPath, Path.Combine(mediaDir, thumbFileName));
+                DerivativeGenerator.GenerateCoverPhoto(storyPath, Path.Combine(mediaDir, photoFileName));
 
                 var oldCoverPath = Path.Combine(outputFolder, memory.CoverImage);
-                var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}");
+                var oldCoverPhotoPath = memory.CoverPhoto is null ? null : Path.Combine(outputFolder, memory.CoverPhoto);
+                var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}", $"media/{photoFileName}");
                 CatalogStore.Save(updated, catalogPath);
 
                 var pendingPublishPath = PendingPublishPath(configPath);
                 var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), $"media/{thumbFileName}");
+                pending = PendingPublish.AddFile(pending, $"media/{photoFileName}");
                 PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
                 MediaVersion.Touch($"media/{thumbFileName}");
+                MediaVersion.Touch($"media/{photoFileName}");
 
                 // Only after the replacement is confirmed on disk — same
                 // build-before-delete ordering as everywhere else here.
                 if (File.Exists(oldCoverPath)) File.Delete(oldCoverPath);
+                if (oldCoverPhotoPath is not null && File.Exists(oldCoverPhotoPath)) File.Delete(oldCoverPhotoPath);
 
                 return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
             }
@@ -528,6 +535,16 @@ public static class UiServer
                         Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
                     pending = PendingPublish.AddFile(pending, memory.CoverImage);
                     MediaVersion.Touch(memory.CoverImage);
+
+                    // Same for the mid-size cover; a Memory published before it
+                    // existed (CoverPhoto null) gets it on its next reindex.
+                    if (memory.CoverPhoto is not null)
+                    {
+                        DerivativeGenerator.GenerateCoverPhoto(
+                            Path.Combine(outputFolder, item.MediaRef), Path.Combine(outputFolder, memory.CoverPhoto));
+                        pending = PendingPublish.AddFile(pending, memory.CoverPhoto);
+                        MediaVersion.Touch(memory.CoverPhoto);
+                    }
                 }
 
                 PendingPublish.Save(pendingPublishPath, pending);

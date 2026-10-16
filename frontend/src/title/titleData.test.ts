@@ -47,3 +47,12 @@ test('fewer covers than places repeat from the start instead of leaving gaps', (
 test('without Memories there are no covers to show', () => {
   expect(pickCovers([], 4)).toEqual([])
 })
+
+test('a Memory with a mid-size cover shows that one instead of its pin thumbnail', () => {
+  const sharp = { ...memory('a', '2020-01-01'), coverPhoto: 'a-cover.jpg' }
+  const old = memory('b', '2020-01-01')
+
+  const covers = pickCovers([sharp, old], 2)
+
+  expect([...covers].sort()).toEqual(['a-cover.jpg', 'b.jpg'])
+})

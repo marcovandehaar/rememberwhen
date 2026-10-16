@@ -140,6 +140,7 @@ public static class CatalogBuilder
         Coordinate? chapterLocation = null;
         var chapterNumber = 1;
         string? coverImage = null;
+        string? coverPhoto = null;
 
         void FlushChapter()
         {
@@ -179,7 +180,7 @@ public static class CatalogBuilder
                 var chapterId = $"{memoryId}-c{chapterNumber}";
                 var id = $"{chapterId}-{i:D4}-{Slug.From(Path.GetFileNameWithoutExtension(file.RelativePath))}";
 
-                // The cover's pin thumbnail is part of the same attempt: a
+                // The cover's pin thumbnail and mid-size cover are part of the same attempt: a
                 // photo whose pixels won't decode can't be the cover either.
                 var isCover = i == coverIndex;
                 if (!TryWithRetry(() =>
@@ -187,16 +188,22 @@ public static class CatalogBuilder
                         var published = kind == MediaKind.Video
                             ? PublishVideo(file, metadata, id, mediaDir, ffmpegPath, log)
                             : PublishPhoto(file, metadata, id, mediaDir);
-                        string? thumb = null;
+                        string? thumb = null, photo = null;
                         var thumbIsNew = false;
+                        var photoIsNew = false;
                         if (isCover)
                         {
                             var thumbPath = Path.Combine(mediaDir, $"{id}-thumb.jpg");
                             thumbIsNew = !File.Exists(thumbPath);
                             DerivativeGenerator.GeneratePinThumbnail(file.FullPath, thumbPath);
                             thumb = thumbPath;
+
+                            var photoPath = Path.Combine(mediaDir, $"{id}-cover.jpg");
+                            photoIsNew = !File.Exists(photoPath);
+                            DerivativeGenerator.GenerateCoverPhoto(file.FullPath, photoPath);
+                            photo = photoPath;
                         }
-                        return (published, thumb, thumbIsNew);
+                        return (published, thumb, thumbIsNew, photo, photoIsNew);
                     }, file.RelativePath, delay, log, cancellationToken, out var result))
                 {
                     skipped.Add(file.RelativePath);
@@ -213,6 +220,8 @@ public static class CatalogBuilder
                 {
                     if (result.thumbIsNew) newlyWrittenFiles.Add(result.thumb);
                     coverImage = $"media/{id}-thumb.jpg";
+                    coverPhoto = $"media/{id}-cover.jpg";
+                    if (result.photoIsNew) newlyWrittenFiles.Add(result.photo!);
                 }
 
                 chapterMediaItems.Add(new RwMediaItem
@@ -256,6 +265,7 @@ public static class CatalogBuilder
             // clock would otherwise date the whole Memory months too early.
             Date = DateOnly.FromDateTime(ordered[0].EffectiveCapturedAt.DateTime),
             CoverImage = coverImage!,
+            CoverPhoto = coverPhoto,
             Chapters = chapters,
         };
 

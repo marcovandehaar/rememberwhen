@@ -43,6 +43,8 @@ export type Memory = {
   /** The day the Memory began, yyyy-mm-dd; its year is the year of this date. */
   date: string
   coverImage: string
+  /** Mid-size cover for the timeline's polaroids; absent until the Memory's next reindex or cover change. */
+  coverPhoto?: string | null
   chapters: Chapter[]
 }
 

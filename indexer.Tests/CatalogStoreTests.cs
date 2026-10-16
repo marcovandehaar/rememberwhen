@@ -157,6 +157,48 @@ public class CatalogStoreTests : IDisposable
     }
 
     [Fact]
+    public void Setting_a_cover_repoints_both_the_pin_thumbnail_and_the_mid_size_cover()
+    {
+        var catalog = new RwCatalog { Memories = [TwoItemMemory()] };
+
+        var updated = CatalogStore.SetCover(catalog, "a", "media/a-c1-0001-y-thumb.jpg", "media/a-c1-0001-y-cover.jpg");
+
+        var memory = updated.Memories.Single();
+        Assert.Equal("media/a-c1-0001-y-thumb.jpg", memory.CoverImage);
+        Assert.Equal("media/a-c1-0001-y-cover.jpg", memory.CoverPhoto);
+    }
+
+    [Fact]
+    public void Other_edits_keep_the_mid_size_cover()
+    {
+        var catalog = new RwCatalog { Memories = [TwoItemMemory(coverPhoto: "media/a-c1-0000-x-cover.jpg")] };
+
+        Assert.Equal("media/a-c1-0000-x-cover.jpg", CatalogStore.SetName(catalog, "a", "Nieuw").Memories[0].CoverPhoto);
+        Assert.Equal("media/a-c1-0000-x-cover.jpg", CatalogStore.SetDestination(catalog, "a", "Elders", new Coordinate(1, 2)).Memories[0].CoverPhoto);
+        Assert.Equal("media/a-c1-0000-x-cover.jpg",
+            CatalogStore.RemoveMediaItem(catalog, "a", "a-c1-0001-y").Catalog.Memories[0].CoverPhoto);
+    }
+
+    [Fact]
+    public void PruneStaleMediaFiles_keeps_the_current_mid_size_cover_and_deletes_an_old_one()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-story.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-thumb.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-cover.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a-c1-0001-y-cover.jpg"), ""); // the cover before the operator changed it
+
+        var memory = Memory("a", chapters: [
+            new RwChapter { Id = "a-c1", MediaItems = [MediaItem("a-c1-0000-x", "media/a-c1-0000-x-story.jpg")] },
+        ], coverImage: "media/a-c1-0000-x-thumb.jpg", coverPhoto: "media/a-c1-0000-x-cover.jpg");
+
+        CatalogStore.PruneStaleMediaFiles(_root, memory);
+
+        var remaining = Directory.GetFiles(_root).Select(Path.GetFileName).ToHashSet();
+        Assert.Equal(new HashSet<string?> { "a-c1-0000-x-story.jpg", "a-c1-0000-x-thumb.jpg", "a-c1-0000-x-cover.jpg" }, remaining);
+    }
+
+    [Fact]
     public void PruneStaleMediaFiles_is_a_no_op_when_the_directory_does_not_exist()
     {
         CatalogStore.PruneStaleMediaFiles(Path.Combine(_root, "nope"), Memory("a"));
@@ -271,7 +313,7 @@ public class CatalogStoreTests : IDisposable
         Assert.Equal(["a-c1-0000-x", "a-c1-0001-y"], memory.Chapters.Single().MediaItems.Select(i => i.Id));
     }
 
-    private static RwMemory TwoItemMemory() => Memory("a", chapters: [
+    private static RwMemory TwoItemMemory(string? coverPhoto = null) => Memory("a", chapters: [
         new RwChapter
         {
             Id = "a-c1",
@@ -281,7 +323,7 @@ public class CatalogStoreTests : IDisposable
                 MediaItem("a-c1-0001-y", "media/a-c1-0001-y-story.jpg"),
             ],
         },
-    ], coverImage: "media/a-c1-0000-x-thumb.jpg");
+    ], coverImage: "media/a-c1-0000-x-thumb.jpg", coverPhoto: coverPhoto);
 
     private static RwMediaItem MediaItem(string id, string mediaRef) => new()
     {
@@ -292,13 +334,14 @@ public class CatalogStoreTests : IDisposable
         ShotDuration = 4,
     };
 
-    private static RwMemory Memory(string id, string? name = null, List<RwChapter>? chapters = null, string? coverImage = null) => new()
+    private static RwMemory Memory(string id, string? name = null, List<RwChapter>? chapters = null, string? coverImage = null, string? coverPhoto = null) => new()
     {
         Id = id,
         Name = name ?? id,
         Destination = new RwDestination("Ergens", new Coordinate(0, 0)),
         Date = new DateOnly(2016, 7, 1),
         CoverImage = coverImage ?? "media/cover.jpg",
+        CoverPhoto = coverPhoto,
         Chapters = chapters ?? [],
     };
 }

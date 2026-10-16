@@ -21,6 +21,11 @@ public sealed class RwMemory
     // The day the Memory began (its year is the year of this date). Always filled.
     public required DateOnly Date { get; init; }
     public required string CoverImage { get; init; }
+
+    // The mid-size cover the timeline shows as a polaroid, next to the pin
+    // thumbnail. Null for a Memory published before it existed: the frontend
+    // falls back to the cover's Story rendition until the next reindex or cover change.
+    public string? CoverPhoto { get; init; }
     public List<RwChapter> Chapters { get; init; } = [];
 }
 

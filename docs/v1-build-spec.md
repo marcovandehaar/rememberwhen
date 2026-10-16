@@ -59,7 +59,7 @@ Eén genest JSON-bestand, gepubliceerd door de `Indexer` naar de NAS. Startpunt,
 {
   schemaVersion,
   memories: [{
-    id, name, destination: { name, coordinate } | null, date, coverImage,
+    id, name, destination: { name, coordinate } | null, date, coverImage, coverPhoto?,
     chapters: [{
       id, location?,
       mediaItems: [{ id, mediaRef, type, capturedAt, storyRect, shotDuration }]
@@ -69,6 +69,7 @@ Eén genest JSON-bestand, gepubliceerd door de `Indexer` naar de NAS. Startpunt,
 ```
 
 - `name` (de `Memory`) valt nooit samen met `destination.name`.
+- `coverPhoto` is de middelgrote cover (korte zijde 800 px) voor de tijdlijn, naast de pin-thumbnail `coverImage`. Ze ontbreekt bij een `Memory` die vóór [#74](https://github.com/marcovandehaar/rememberwhen/issues/74) is gepubliceerd, tot de volgende herindexering of cover-wissel; de frontend valt dan terug op de Story-rendition van de cover.
 - `schemaVersion` is 2. `destination` is `null` voor een `Memory` die geen `Trip` is; de globe toont alleen `Memory`'s met een `destination`.
 - `date` (`yyyy-mm-dd`) is altijd gevuld: de vroegste opnamedag na de camera-klokcorrectie (`AnomalyDetector`). Het jaar van een `Memory` is het jaar van die datum. De catalogus-migratie leidt 'm af uit de vroegste `capturedAt` die al in de catalogus staat.
 - `storyRect` en `shotDuration` zijn v1 formulaïsch gevuld (afwisselende richting, lichte zoom, portrait/landscape verschillend behandeld) — saliency-gestuurde herberekening is een latere aanvulling op dezelfde velden, nooit een her-index.

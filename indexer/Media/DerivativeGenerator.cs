@@ -10,6 +10,7 @@ public static class DerivativeGenerator
 {
     public const int StoryWidth = 2160;
     public const int PinThumbnailWidth = 192; // 96 CSS px * DPR 2
+    public const int CoverPhotoShortSide = 800; // a square polaroid crop, sharp on a Retina iPad
     public const int Quality = 82;
 
     private static readonly string[] AlreadyJpeg = [".jpg", ".jpeg"];
@@ -27,11 +28,21 @@ public static class DerivativeGenerator
             return;
         }
 
-        EncodeResizedJpeg(sourcePath, StoryWidth, outputPath);
+        EncodeResizedJpeg(sourcePath, _ => StoryWidth, outputPath);
     }
 
     public static void GeneratePinThumbnail(string sourcePath, string outputPath) =>
-        EncodeResizedJpeg(sourcePath, PinThumbnailWidth, outputPath);
+        EncodeResizedJpeg(sourcePath, _ => PinThumbnailWidth, outputPath);
+
+    // The timeline's polaroid cover (#74): the short side is CoverPhotoShortSide,
+    // so a square crop of it stays sharp whichever way the photo is held. Never upscaled.
+    public static void GenerateCoverPhoto(string sourcePath, string outputPath) =>
+        EncodeResizedJpeg(sourcePath, frame =>
+        {
+            var shortSide = Math.Min(frame.PixelWidth, frame.PixelHeight);
+            var scale = Math.Min(1.0, (double)CoverPhotoShortSide / shortSide);
+            return (int)Math.Round(frame.PixelWidth * scale);
+        }, outputPath);
 
     // Rotates a derivative in place — never the original source file, same
     // rule as everywhere else here. Returns the rotated pixel size, since
@@ -58,11 +69,11 @@ public static class DerivativeGenerator
         return (writtenFrame.PixelWidth, writtenFrame.PixelHeight);
     }
 
-    private static void EncodeResizedJpeg(string sourcePath, int targetWidth, string outputPath)
+    private static void EncodeResizedJpeg(string sourcePath, Func<BitmapSource, int> targetWidth, string outputPath)
     {
         var frame = Decode(sourcePath);
 
-        var width = Math.Min(targetWidth, frame.PixelWidth); // never upscale
+        var width = Math.Min(targetWidth(frame), frame.PixelWidth); // never upscale
         var scale = (double)width / frame.PixelWidth;
         var resized = new TransformedBitmap(frame, new System.Windows.Media.ScaleTransform(scale, scale));
 

@@ -10,11 +10,11 @@ export function yearRange(memories: Memory[]): YearRange | null {
 }
 
 /**
- * `count` covers in a random order, so each launch shows different polaroids.
+ * `count` covers (the mid-size one where the Memory has it) in a random order, so each launch shows different polaroids.
  * With fewer Memories than places the shuffled covers repeat rather than leave gaps.
  */
 export function pickCovers(memories: Memory[], count: number, random: () => number = Math.random): string[] {
-  const covers = memories.map((m) => m.coverImage)
+  const covers = memories.map((m) => m.coverPhoto ?? m.coverImage)
   if (covers.length === 0) return []
 
   // Fisher–Yates

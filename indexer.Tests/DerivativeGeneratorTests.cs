@@ -86,6 +86,29 @@ public class DerivativeGeneratorTests : IDisposable
         Assert.Equal((DerivativeGenerator.PinThumbnailWidth, 256), RawSize(_output));
     }
 
+    [Theory]
+    [InlineData(4000, 3000, 1067, 800)]
+    [InlineData(3000, 4000, 800, 1067)]
+    [InlineData(600, 400, 600, 400)] // never upscaled
+    public void The_cover_photo_has_a_short_side_of_800_and_is_never_upscaled(int width, int height, int expectedWidth, int expectedHeight)
+    {
+        TestImages.WriteJpeg(_source, width, height);
+
+        DerivativeGenerator.GenerateCoverPhoto(_source, _output);
+
+        Assert.Equal((expectedWidth, expectedHeight), RawSize(_output));
+    }
+
+    [Fact]
+    public void The_cover_photo_of_a_sideways_photo_is_upright()
+    {
+        TestImages.WriteJpeg(_source, width: 4000, height: 3000, orientation: 6);
+
+        DerivativeGenerator.GenerateCoverPhoto(_source, _output);
+
+        Assert.Equal((800, 1067), RawSize(_output));
+    }
+
     [Fact]
     public void A_photo_tagged_as_upright_is_still_copied_as_is()
     {

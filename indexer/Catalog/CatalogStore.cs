@@ -87,17 +87,19 @@ public static class CatalogStore
             Destination = memory.Destination,
             Date = memory.Date,
             CoverImage = memory.CoverImage,
+            CoverPhoto = memory.CoverPhoto,
             Chapters = [.. memory.Chapters.Where(c => c.Id != chapter.Id), updatedChapter],
         };
 
         return new(Replace(catalog, updatedMemory), null);
     }
 
-    // The new pin thumbnail must already be published under coverImage before
+    // The new pin thumbnail and mid-size cover must already be published under
+    // coverImage and coverPhoto before
     // this runs (UiServer.cs does that, from the item's own story derivative
     // — never the original source file, same as everywhere else in this
     // review screen) — this only ever repoints the model at it.
-    public static RwCatalog SetCover(RwCatalog catalog, string memoryId, string coverImage)
+    public static RwCatalog SetCover(RwCatalog catalog, string memoryId, string coverImage, string coverPhoto)
     {
         var memory = catalog.Memories.First(m => m.Id == memoryId);
         var updatedMemory = new RwMemory
@@ -107,6 +109,7 @@ public static class CatalogStore
             Destination = memory.Destination,
             Date = memory.Date,
             CoverImage = coverImage,
+            CoverPhoto = coverPhoto,
             Chapters = memory.Chapters,
         };
         return Replace(catalog, updatedMemory);
@@ -127,6 +130,7 @@ public static class CatalogStore
             Destination = new RwDestination(destinationName, coordinate),
             Date = memory.Date,
             CoverImage = memory.CoverImage,
+            CoverPhoto = memory.CoverPhoto,
             Chapters = memory.Chapters,
         };
         return Replace(catalog, updatedMemory);
@@ -147,6 +151,7 @@ public static class CatalogStore
             Destination = memory.Destination,
             Date = memory.Date,
             CoverImage = memory.CoverImage,
+            CoverPhoto = memory.CoverPhoto,
             Chapters = memory.Chapters,
         };
         return new RwCatalog
@@ -186,6 +191,7 @@ public static class CatalogStore
             Destination = memory.Destination,
             Date = memory.Date,
             CoverImage = memory.CoverImage,
+            CoverPhoto = memory.CoverPhoto,
             Chapters = [.. memory.Chapters.Select(c => c.Id == chapter.Id ? updatedChapter : c)],
         };
         return Replace(catalog, updatedMemory);
@@ -225,6 +231,7 @@ public static class CatalogStore
             .SelectMany(c => c.MediaItems)
             .Select(i => Path.GetFileName(i.MediaRef))
             .Append(Path.GetFileName(memory.CoverImage))
+            .Concat(memory.CoverPhoto is null ? [] : [Path.GetFileName(memory.CoverPhoto)])
             .ToHashSet();
 
         foreach (var chapter in memory.Chapters)

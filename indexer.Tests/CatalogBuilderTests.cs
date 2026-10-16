@@ -1,6 +1,7 @@
 using Indexer;
 using Indexer.Catalog;
 using Indexer.Curation;
+using Indexer.Media;
 
 namespace Indexer.Tests;
 
@@ -69,6 +70,21 @@ public class CatalogBuilderTests : IDisposable
 
         var memory = catalog.Memories[0];
         Assert.Contains("earliest", memory.CoverImage);
+        Assert.True(File.Exists(Path.Combine(_outputDir, memory.CoverImage)));
+    }
+
+    [Fact]
+    public void A_fresh_index_publishes_a_mid_size_cover_next_to_the_pin_thumbnail()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 4000, 3000, new DateTime(2016, 7, 1, 8, 0, 0));
+
+        var gazetteer = Gazetteer.Load(_gazetteerPath);
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
+
+        var memory = catalog.Memories[0];
+        Assert.Equal($"media/{memory.Chapters[0].MediaItems[0].Id}-cover.jpg", memory.CoverPhoto);
+        var published = PhotoMetadataReader.Read(Path.Combine(_outputDir, memory.CoverPhoto!));
+        Assert.Equal(800, Math.Min(published.Width, published.Height));
         Assert.True(File.Exists(Path.Combine(_outputDir, memory.CoverImage)));
     }
 
