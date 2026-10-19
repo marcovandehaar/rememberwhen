@@ -168,7 +168,11 @@ async function loadMemories({ preserveSelection = true } = {}) {
     api('GET', '/api/memories'),
     api('GET', '/api/pending-publish'),
   ]);
+  const selectedName = memories.find((m) => m.memoryId === selectedId)?.name;
   memories = list;
+  if (preserveSelection && !memories.some((m) => m.memoryId === selectedId)) {
+    selectedId = memories.find((m) => m.name === selectedName)?.memoryId ?? selectedId;
+  }
   if (!preserveSelection || !memories.some((m) => m.memoryId === selectedId)) {
     selectedId = memories[0]?.memoryId ?? null;
   }
@@ -204,7 +208,7 @@ document.getElementById('folder-filter').addEventListener('input', (e) => {
 function renderKindFilter() {
   const bar = document.getElementById('kind-filter');
   bar.innerHTML = '';
-  for (const [kind, label] of [['all', 'Alles'], ['trips', 'Trips'], ['memories', 'Geen Trip']]) {
+  for (const [kind, label] of [['all', 'Alles'], ['trips', 'Trips'], ['memories', 'Memory']]) {
     const count = memories.filter((m) => matchesKind(m, kind)).length;
     const button = el(`<button type="button" class="${kind === kindFilter ? 'on' : ''}"></button>`);
     button.textContent = `${label} ${count}`;
@@ -273,6 +277,29 @@ document.getElementById('add-memory-button').addEventListener('click', openNewMe
 
 // A name plus a first Source Folder (the existing picker). The Memory sits
 // under "Nog niet geïndexeerd" until its first index.
+// Closing is animated like opening (the .closing class, then removed after its 120ms).
+function closeOverlay(overlay) {
+  overlay.classList.add('closing');
+  setTimeout(() => overlay.remove(), 120);
+}
+
+// The inline editors (name, Soort, Datum) open with a short slide-in and
+// leave with a short fade, instead of popping in and out.
+function openEditor(box, html) {
+  box.classList.remove('closing');
+  box.innerHTML = html;
+  box.classList.add('editor-box');
+}
+
+function closeEditor(box) {
+  box.classList.add('closing');
+  setTimeout(() => {
+    if (!box.classList.contains('closing')) return; // reopened meanwhile
+    box.classList.remove('closing');
+    box.innerHTML = '';
+  }, 120);
+}
+
 function openNewMemoryDialog() {
   const dialog = el(`
     <div class="sheet-overlay">
@@ -304,7 +331,7 @@ function openNewMemoryDialog() {
   const nameInput = dialog.querySelector('#new-memory-name');
   const pathInput = dialog.querySelector('#new-memory-path');
   const errorEl = dialog.querySelector('#new-memory-error');
-  const close = () => dialog.remove();
+  const close = () => closeOverlay(dialog);
   nameInput.focus();
 
   dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
@@ -538,7 +565,7 @@ async function removeFolderFromMemory(m, path) {
 
 function openKindEditor(m) {
   const box = document.getElementById('kind-editor');
-  box.innerHTML = `
+  openEditor(box, `
     <div class="row" style="margin:8px 0">
       <input type="text" id="kind-destination-input" list="destination-names" placeholder="Zeeland" value="${escapeHtml(m.destinationName ?? '')}" />
       <button type="button" class="button small" id="apply-kind-button">${isTrip(m) ? 'Bijwerken' : 'Maak Trip'}</button>
@@ -549,11 +576,11 @@ function openKindEditor(m) {
     <div id="gazetteer-suggestion"></div>
     <p class="hint" style="max-width:480px">${m.neverIndexed ? 'Wordt gebruikt bij het eerste indexeren.' : 'Direct toegepast, zonder opnieuw te indexeren; op de globe na het volgende publiceren.'}</p>
     <p class="error" id="kind-error" style="max-width:480px" hidden></p>
-  `;
+  `);
   const input = box.querySelector('#kind-destination-input');
   input.focus();
   input.select();
-  box.querySelector('#cancel-kind-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#cancel-kind-button').addEventListener('click', () => closeEditor(box));
   box.querySelector('#suggest-coordinate-button').addEventListener('click', () => suggestCoordinate(input.value.trim()));
   box.querySelector('#apply-kind-button').addEventListener('click', (e) => applyDestination(m, input.value.trim(), e.currentTarget));
   box.querySelector('#clear-kind-button')?.addEventListener('click', (e) => applyDestination(m, '', e.currentTarget));
@@ -639,7 +666,7 @@ async function suggestCoordinate(name) {
 
 function openDateEditor(m) {
   const box = document.getElementById('date-editor');
-  box.innerHTML = `
+  openEditor(box, `
     <div class="row" style="margin:8px 0">
       <input type="date" id="date-input" value="${m.dateOverride ?? ''}" />
       <button type="button" class="button small" id="apply-date-button">Opslaan</button>
@@ -648,10 +675,10 @@ function openDateEditor(m) {
     </div>
     <p class="hint" style="max-width:480px">Leeg laten = de datum van de vroegste foto${m.defaultDate ? ` (${formatDay(m.defaultDate)})` : ''}. Direct toegepast.</p>
     <p class="error" id="date-error" style="max-width:480px" hidden></p>
-  `;
+  `);
   const input = box.querySelector('#date-input');
   input.focus();
-  box.querySelector('#cancel-date-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#cancel-date-button').addEventListener('click', () => closeEditor(box));
   box.querySelector('#apply-date-button').addEventListener('click', (e) => applyDate(m, input.value, e.currentTarget));
   box.querySelector('#clear-date-button')?.addEventListener('click', (e) => applyDate(m, '', e.currentTarget));
 }
@@ -678,18 +705,18 @@ async function applyDate(m, date, button) {
 // hand, and the new ones go out with the next publish.
 function openNameEditor(m) {
   const box = document.getElementById('name-editor');
-  box.innerHTML = `
+  openEditor(box, `
     <div class="row" style="margin:8px 0">
       <input type="text" id="memory-name-input" value="${escapeHtml(m.name)}" />
       <button type="button" class="button small" id="apply-name-button">Opslaan</button>
       <button type="button" class="button ghost small" id="cancel-name-button">Annuleren</button>
     </div>
     <p class="error" id="name-error" style="max-width:480px" hidden></p>
-  `;
+  `);
   const input = box.querySelector('#memory-name-input');
   input.focus();
   input.select();
-  box.querySelector('#cancel-name-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#cancel-name-button').addEventListener('click', () => closeEditor(box));
   box.querySelector('#apply-name-button').addEventListener('click', (e) => applyName(m, input.value.trim(), e.currentTarget));
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-name-button').click(); });
 }
@@ -703,7 +730,7 @@ async function applyName(m, memoryName, button) {
     return;
   }
   if (memoryName === m.name) {
-    document.getElementById('name-editor').innerHTML = '';
+    closeEditor(document.getElementById('name-editor'));
     return;
   }
   button.disabled = true;

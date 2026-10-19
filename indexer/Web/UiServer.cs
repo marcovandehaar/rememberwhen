@@ -625,6 +625,11 @@ public static class UiServer
 
             lock (CatalogStore.Gate) // #44
             {
+                // Fresh inside the lock: an index run's RecordMemoryIndexed may have saved since the Load above.
+                config = IndexerConfig.Load(configPath);
+                target = config.FindById(target.MemoryId);
+                if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
                 if (target.IndexedAt is not null)
                 {
                     var catalog = CatalogStore.Load(catalogPath);
@@ -666,6 +671,10 @@ public static class UiServer
             var catalogPath = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json");
             lock (CatalogStore.Gate) // #44
             {
+                config = IndexerConfig.Load(configPath);
+                target = config.FindById(target.MemoryId);
+                if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
                 if (target.IndexedAt is not null)
                 {
                     var catalog = CatalogStore.Load(catalogPath);
@@ -721,6 +730,10 @@ public static class UiServer
             var catalogPath = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json");
             lock (CatalogStore.Gate) // #44
             {
+                config = IndexerConfig.Load(configPath);
+                target = config.FindById(target.MemoryId);
+                if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
                 config.SetDateOverride(target.MemoryId, date);
 
                 if (target.IndexedAt is not null)

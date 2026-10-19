@@ -513,3 +513,9 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 .mem-folders button:disabled { opacity: 0.35; cursor: default; }
 .dim { color: var(--text-dim); }
 .override { color: var(--accent); }
+
+/* The inline editors slide in and fade out, both quickly. */
+.editor-box { animation: editor-in 0.14s ease-out; }
+.editor-box.closing { animation: editor-out 0.12s ease forwards; }
+@keyframes editor-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes editor-out { to { opacity: 0; transform: translateY(-4px); } }
