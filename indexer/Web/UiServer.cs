@@ -107,25 +107,27 @@ public static class UiServer
             }
         });
 
-        app.MapGet("/api/folders", () => Results.Json(BuildFolderViews(configPath), JsonOptions.Default));
+        app.MapGet("/api/memories", () => Results.Json(BuildMemoryViews(configPath), JsonOptions.Default));
 
-        app.MapPost("/api/folders", (PathRequest body) =>
+        // "+ Nieuwe Memory": a name and a first Source Folder (#65). It is not
+        // in the catalogue until its first index.
+        app.MapPost("/api/memories", (NewMemoryRequest body) =>
         {
             var config = IndexerConfig.Load(configPath);
             try
             {
-                config.AddSourceFolder(body.Path);
+                config.AddMemory(body.Name ?? "", body.Path ?? "");
             }
-            catch (DirectoryNotFoundException ex)
+            catch (Exception ex) when (ex is ArgumentException or DirectoryNotFoundException or InvalidOperationException)
             {
                 return Results.BadRequest(new ErrorResponse(ex.Message));
             }
 
             config.Save(configPath);
-            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
         });
 
-        app.MapDelete("/api/folders", (string path) =>
+        app.MapDelete("/api/memories", (string memoryId) =>
         {
             var config = IndexerConfig.Load(configPath);
             // #44: Load, mutate and Save must happen as one uninterrupted
@@ -133,25 +135,26 @@ public static class UiServer
             // between and either race on the file handle or get overwritten.
             lock (CatalogStore.Gate)
             {
-                var indexed = config.FindIndexed(path);
-                if (indexed is not null)
+                var target = config.FindById(memoryId);
+                if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
+                if (target.IndexedAt is not null)
                 {
                     var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
                     var catalogPath = Path.Combine(outputFolder, "catalog.json");
                     var catalog = CatalogStore.Load(catalogPath);
-                    var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
+                    var published = catalog.Memories.FirstOrDefault(m => m.Id == target.MemoryId);
 
-                    CatalogStore.Save(CatalogStore.RemoveMemory(catalog, indexed.MemoryId), catalogPath);
-                    if (memory is not null)
-                        CatalogStore.DeleteMediaFilesForMemory(Path.Combine(outputFolder, "media"), memory);
+                    CatalogStore.Save(CatalogStore.RemoveMemory(catalog, target.MemoryId), catalogPath);
+                    if (published is not null)
+                        CatalogStore.DeleteMediaFilesForMemory(Path.Combine(outputFolder, "media"), published);
 
-                    var pendingPublishPath = PendingPublishPath(configPath);
-                    PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
+                    MarkCatalogPending(configPath);
                 }
 
-                config.RemoveSourceFolder(path);
+                config.RemoveMemory(memoryId);
                 config.Save(configPath);
-                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
             }
         });
 
@@ -171,7 +174,7 @@ public static class UiServer
             }
 
             config.Save(configPath);
-            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
         });
 
         app.MapDelete("/api/memories/folders", (string memoryId, string path) =>
@@ -187,38 +190,35 @@ public static class UiServer
             }
 
             config.Save(configPath);
-            return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
         });
 
-        app.MapPost("/api/folders/index", (IndexFolderRequest body) =>
+        app.MapPost("/api/memories/index", (IndexMemoryRequest body) =>
         {
             var config = IndexerConfig.Load(configPath);
 
-            // A Memory is built from all its Source Folders (#64); a folder
-            // alone only names the Memory when it is the one it was built from.
-            var target = !string.IsNullOrWhiteSpace(body.MemoryId)
-                ? config.FindById(body.MemoryId)
-                : string.IsNullOrWhiteSpace(body.Path) ? null : config.FindByFolder(body.Path);
+            // A Memory is built from all its Source Folders (#64), with the
+            // name and Destination it has in the list: those are edited there,
+            // not typed again at index time.
+            var target = string.IsNullOrWhiteSpace(body.MemoryId) ? null : config.FindById(body.MemoryId);
             if (target is null)
-                return Results.BadRequest(new ErrorResponse("Kies een geconfigureerde Source Folder."));
+                return Results.BadRequest(new ErrorResponse("Kies een Memory."));
             var missing = target.SourceFolders.FirstOrDefault(f => !Directory.Exists(f));
             if (missing is not null)
                 return Results.BadRequest(new ErrorResponse($"Source Folder bestaat niet meer: {missing}"));
 
             var sourceFolders = target.SourceFolders.ToList();
             var existing = target.IndexedAt is null ? null : target;
-            var memoryName = string.IsNullOrWhiteSpace(body.MemoryName) ? existing?.Name : body.MemoryName;
-            // No Destination is fine: the Memory is then not a Trip (#64).
-            var destinationName = string.IsNullOrWhiteSpace(body.DestinationName) ? existing?.DestinationName : body.DestinationName;
-
-            if (string.IsNullOrWhiteSpace(memoryName))
-                return Results.BadRequest(new ErrorResponse("Memory-naam mag niet leeg zijn."));
+            var memoryName = target.Name;
+            // No Destination is fine: the Memory is then not a Trip.
+            var destinationName = target.DestinationName;
+            var dateOverride = target.DateOverride;
 
             var newMemoryId = Slug.From(memoryName);
-            var collision = config.Memories.FirstOrDefault(m => m.IndexedAt is not null && m.MemoryId == newMemoryId && m != target);
+            var collision = config.Memories.FirstOrDefault(m => m != target && m.MemoryId == newMemoryId);
             if (collision is not null)
                 return Results.BadRequest(new ErrorResponse(
-                    $"'{memoryName}' is al in gebruik voor een andere Memory ({collision.SourceFolders[0]}). Kies een andere Memory-naam."));
+                    $"'{memoryName}' is al in gebruik voor een andere Memory. Kies een andere Memory-naam."));
 
             var (_, gazetteerPath, error) = LoadGazetteer(configPath,
                 r => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {r}. Configureer 'm eerst.")));
@@ -234,14 +234,19 @@ public static class UiServer
             {
                 // Build before touching anything already published: if this
                 // throws (e.g. an unseeded Gazetteer entry), the previous
-                // successful publish for this Source Folder must survive
-                // untouched — never delete a working result before knowing
-                // its replacement actually landed.
+                // successful publish for this Memory must survive untouched —
+                // never delete a working result before knowing its
+                // replacement actually landed.
                 var log = new RunLogWriter(state);
                 var gazetteer = Gazetteer.Load(gazetteerPath);
                 var built = CatalogBuilder.Build(sourceFolders, memoryName, destinationName, gazetteer, outputFolder, curationFolder, log,
                     onProgress: state.SetProgress, cancellationToken: state.CancellationToken, ffmpegPath: ffmpegPath);
-                var newMemory = built.Memories[0];
+                var builtMemory = built.Memories[0];
+                // The build records the date its earliest photo gave the
+                // Memory; an override the operator set keeps winning.
+                var newMemory = dateOverride is { } overrideDate
+                    ? CatalogStore.SetDate(built, builtMemory.Id, overrideDate).Memories.Single()
+                    : builtMemory;
 
                 // #44: same reasoning as the other handlers — Load through
                 // Save is one transaction, so a request reviewing/removing
@@ -277,7 +282,7 @@ public static class UiServer
                 }
 
                 var freshConfig = IndexerConfig.Load(configPath);
-                freshConfig.RecordMemoryIndexed(target.MemoryId, newMemory.Id, memoryName, destinationName, newMemory.Date);
+                freshConfig.RecordMemoryIndexed(target.MemoryId, newMemory.Id, memoryName, destinationName, builtMemory.Date);
                 freshConfig.Save(configPath);
 
                 state.AppendLog($"Catalogus bijgewerkt: {catalogPath}");
@@ -475,7 +480,7 @@ public static class UiServer
                 var pendingPublishPath = PendingPublishPath(configPath);
                 PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
 
-                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
             }
         });
 
@@ -497,7 +502,7 @@ public static class UiServer
                 if (item is null) return Results.NotFound(new ErrorResponse("Onbekend Media Item."));
 
                 if (CatalogStore.IsCover(memory, item.Id))
-                    return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                    return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
                 if (item.Type == MediaKind.Video)
                     return Results.BadRequest(new ErrorResponse("Een video kan geen cover zijn."));
 
@@ -526,7 +531,7 @@ public static class UiServer
                 if (File.Exists(oldCoverPath)) File.Delete(oldCoverPath);
                 if (oldCoverPhotoPath is not null && File.Exists(oldCoverPhotoPath)) File.Delete(oldCoverPhotoPath);
 
-                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
             }
         });
 
@@ -590,7 +595,7 @@ public static class UiServer
 
                 PendingPublish.Save(pendingPublishPath, pending);
 
-                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
             }
         });
 
@@ -605,83 +610,131 @@ public static class UiServer
                 return Results.BadRequest(new ErrorResponse("Vul een Memory-naam in."));
 
             var config = IndexerConfig.Load(configPath);
-            var indexed = config.FindIndexed(body.Path);
-            if (indexed is null) return Results.NotFound(new ErrorResponse("Deze map is nog niet geïndexeerd."));
+            var target = config.FindById(body.MemoryId);
+            if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
 
             // The same check a reindex under this name would hit later.
             var newMemoryId = Slug.From(memoryName);
-            var collision = config.Memories.FirstOrDefault(m => m.IndexedAt is not null && m.MemoryId == newMemoryId && !m.SourceFolders.Contains(body.Path));
+            var collision = config.Memories.FirstOrDefault(m => m != target && m.MemoryId == newMemoryId);
             if (collision is not null)
                 return Results.BadRequest(new ErrorResponse(
-                    $"'{memoryName}' is al in gebruik voor een andere map ({collision.SourceFolders[0]}). Kies een andere Memory-naam."));
+                    $"'{memoryName}' is al in gebruik voor een andere Memory. Kies een andere Memory-naam."));
 
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
 
             lock (CatalogStore.Gate) // #44
             {
-                var catalog = CatalogStore.Load(catalogPath);
-                var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
-                if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+                if (target.IndexedAt is not null)
+                {
+                    var catalog = CatalogStore.Load(catalogPath);
+                    if (catalog.Memories.All(m => m.Id != target.MemoryId))
+                        return Results.NotFound(new ErrorResponse("Onbekende Memory."));
 
-                CatalogStore.Save(CatalogStore.SetName(catalog, memory.Id, memoryName), catalogPath);
-                config.UpdateIndexedMemoryName(body.Path, memoryName);
+                    CatalogStore.Save(CatalogStore.SetName(catalog, target.MemoryId, memoryName), catalogPath);
+                    MarkCatalogPending(configPath);
+                }
+
+                config.RenameMemory(target.MemoryId, memoryName);
                 config.Save(configPath);
-
-                var pendingPublishPath = PendingPublishPath(configPath);
-                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
-
-                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
             }
         });
 
-        // A full reindex would also pick up a corrected Gazetteer entry, but
-        // it rescans every photo and undoes any curation (#44's removed
-        // items come back) — this only ever repoints a Memory at a
-        // Destination without that rescan. The same name back in is just a
-        // coordinate refresh; a different name re-homes the Memory.
-        app.MapPut("/api/memories/coordinate", (RefreshCoordinateRequest body) =>
+        // "Soort" (#65): a Memory is a Trip by having a Destination. Changing
+        // it applies to catalog.json at once, with no rescan and so no lost
+        // curation (#44's removed items stay removed); the globe only picks
+        // it up after the next publish. An empty name makes it not a Trip.
+        // For a Memory not indexed yet it only sets what the first index uses.
+        app.MapPut("/api/memories/destination", (SetDestinationRequest body) =>
         {
-            var destinationName = body.DestinationName.Trim();
-            if (destinationName.Length == 0)
-                return Results.BadRequest(new ErrorResponse("Vul een Destination-naam in."));
+            var destinationName = string.IsNullOrWhiteSpace(body.DestinationName) ? null : body.DestinationName.Trim();
 
             var config = IndexerConfig.Load(configPath);
-            var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
-            var catalogPath = Path.Combine(outputFolder, "catalog.json");
+            var target = config.FindById(body.MemoryId);
+            if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
 
-            var indexed = config.FindIndexed(body.Path);
-            if (indexed is null) return Results.NotFound(new ErrorResponse("Deze map is nog niet geïndexeerd."));
+            Gazetteer? gazetteer = null;
+            if (destinationName is not null && target.IndexedAt is not null)
+            {
+                var (loaded, _, error) = LoadGazetteer(configPath,
+                    resolved => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {resolved}.")));
+                if (error is not null) return error;
+                gazetteer = loaded;
+            }
 
-            var (gazetteer, _, error) = LoadGazetteer(configPath,
-                resolved => Results.BadRequest(new ErrorResponse($"Gazetteer niet gevonden op {resolved}.")));
-            if (error is not null) return error;
-
+            var catalogPath = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json");
             lock (CatalogStore.Gate) // #44
             {
-                var catalog = CatalogStore.Load(catalogPath);
-                var memory = catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
-                if (memory is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
-
-                Coordinate coordinate;
-                try
+                if (target.IndexedAt is not null)
                 {
-                    coordinate = gazetteer!.Lookup(destinationName);
-                }
-                catch (KeyNotFoundException ex)
-                {
-                    return Results.BadRequest(new ErrorResponse(ex.Message));
+                    var catalog = CatalogStore.Load(catalogPath);
+                    if (catalog.Memories.All(m => m.Id != target.MemoryId))
+                        return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
+                    RwCatalog updated;
+                    if (destinationName is null)
+                    {
+                        updated = CatalogStore.ClearDestination(catalog, target.MemoryId);
+                    }
+                    else
+                    {
+                        Coordinate coordinate;
+                        try
+                        {
+                            coordinate = gazetteer!.Lookup(destinationName);
+                        }
+                        catch (KeyNotFoundException ex)
+                        {
+                            return Results.BadRequest(new ErrorResponse(ex.Message));
+                        }
+                        updated = CatalogStore.SetDestination(catalog, target.MemoryId, destinationName, coordinate);
+                    }
+
+                    CatalogStore.Save(updated, catalogPath);
+                    MarkCatalogPending(configPath);
                 }
 
-                var updated = CatalogStore.SetDestination(catalog, memory.Id, destinationName, coordinate);
-                CatalogStore.Save(updated, catalogPath);
-                config.UpdateIndexedDestinationName(body.Path, destinationName);
+                config.SetDestinationName(target.MemoryId, destinationName);
                 config.Save(configPath);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
+            }
+        });
 
-                var pendingPublishPath = PendingPublishPath(configPath);
-                PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
+        // The date the timeline files a Memory under: the operator's override
+        // (empty = back to what the earliest photo gave it). Applied at once;
+        // the catalogue only ever holds the effective date.
+        app.MapPut("/api/memories/date", (SetDateRequest body) =>
+        {
+            DateOnly? date = null;
+            if (!string.IsNullOrWhiteSpace(body.Date))
+            {
+                if (!DateOnly.TryParseExact(body.Date.Trim(), "yyyy-MM-dd", out var parsed))
+                    return Results.BadRequest(new ErrorResponse("Gebruik een datum als jjjj-mm-dd."));
+                date = parsed;
+            }
 
-                return Results.Json(BuildFolderViews(configPath), JsonOptions.Default);
+            var config = IndexerConfig.Load(configPath);
+            var target = config.FindById(body.MemoryId);
+            if (target is null) return Results.NotFound(new ErrorResponse("Onbekende Memory."));
+
+            var catalogPath = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json");
+            lock (CatalogStore.Gate) // #44
+            {
+                config.SetDateOverride(target.MemoryId, date);
+
+                if (target.IndexedAt is not null)
+                {
+                    var catalog = CatalogStore.Load(catalogPath);
+                    if (catalog.Memories.Any(m => m.Id == target.MemoryId))
+                    {
+                        CatalogStore.Save(CatalogStore.SetDate(catalog, target.MemoryId, target.EffectiveDate), catalogPath);
+                        MarkCatalogPending(configPath);
+                    }
+                }
+
+                config.Save(configPath);
+                return Results.Json(BuildMemoryViews(configPath), JsonOptions.Default);
             }
         });
 
@@ -921,12 +974,11 @@ public static class UiServer
         app.Run();
     }
 
-    private static List<FolderView> BuildFolderViews(string configPath)
+    private static List<MemoryView> BuildMemoryViews(string configPath)
     {
         // One snapshot: a handler that changes both (a rename, a reindex)
         // holds this lock for its whole Load-mutate-Save, so reading the
-        // config outside it could pair the old config with the new catalogue
-        // and show an indexed folder as "Nog niet geïndexeerd".
+        // config outside it could pair the old config with the new catalogue.
         IndexerConfig config;
         RwCatalog catalog;
         lock (CatalogStore.Gate)
@@ -935,43 +987,14 @@ public static class UiServer
             catalog = CatalogStore.Load(Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json"));
         }
 
-        var views = config.SourceFolders.Select(path =>
-        {
-            var indexed = config.FindIndexed(path);
-            var memory = indexed is null ? null : catalog.Memories.FirstOrDefault(m => m.Id == indexed.MemoryId);
+        return MemoryViews.Build(config, catalog, Directory.Exists, VersionedMediaUrl);
+    }
 
-            IndexedView? indexedView = null;
-            DateTimeOffset? tripDate = null;
-            if (indexed is not null && memory is not null)
-            {
-                var items = memory.Chapters
-                    .SelectMany(c => c.MediaItems)
-                    .Select(item => new MediaItemView(
-                        item.Id,
-                        VersionedMediaUrl(item.MediaRef),
-                        item.Type,
-                        item.CapturedAt,
-                        CatalogStore.IsCover(memory, item.Id)))
-                    .ToList();
-
-                indexedView = new IndexedView(
-                    indexed.MemoryId, indexed.Name, indexed.DestinationName ?? "", memory.Destination?.Coordinate,
-                    indexed.IndexedAt!.Value, VersionedMediaUrl(memory.CoverImage), items);
-
-                // The sidebar orders by when a trip happened, not when it was
-                // indexed — the earliest capture date across the memory's own
-                // photos, falling back to IndexedAt only for the rare memory
-                // with no EXIF timestamp on any item at all.
-                tripDate = items.Select(i => i.CapturedAt).Where(d => d.HasValue).Select(d => d!.Value)
-                    .DefaultIfEmpty(indexed.IndexedAt!.Value).Min();
-            }
-
-            return (View: new FolderView(path, Directory.Exists(path), indexedView), TripDate: tripDate);
-        }).ToList();
-
-        // Not-yet-indexed folders first (they need attention before anything
-        // else), then indexed memories newest-trip-first.
-        return [.. views.OrderByDescending(v => v.View.Indexed is null).ThenByDescending(v => v.TripDate).Select(v => v.View)];
+    // catalog.json changed: it goes out with the next publish.
+    private static void MarkCatalogPending(string configPath)
+    {
+        var pendingPublishPath = PendingPublishPath(configPath);
+        PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
     }
 
     // A rotate or a new cover overwrites a derivative file at the exact same
@@ -1067,8 +1090,9 @@ public sealed record PathRequest(string Path);
 
 public sealed record GazetteerEntryRequest(string Name, double Lat, double Lon);
 
-// MemoryId names the Memory to (re)index; without it the Memory is the one built from Path.
-public sealed record IndexFolderRequest(string? Path, string? MemoryName, string? DestinationName, string? MemoryId = null);
+public sealed record NewMemoryRequest(string? Name, string? Path);
+
+public sealed record IndexMemoryRequest(string? MemoryId);
 
 public sealed record MemoryFolderRequest(string MemoryId, string Path);
 
@@ -1076,24 +1100,15 @@ public sealed record SetCoverRequest(string MemoryId, string ItemId);
 
 public sealed record RotateMediaItemRequest(string MemoryId, string ItemId);
 
-public sealed record RefreshCoordinateRequest(string Path, string DestinationName);
+public sealed record SetDestinationRequest(string MemoryId, string? DestinationName);
 
-public sealed record RenameMemoryRequest(string Path, string MemoryName);
+public sealed record SetDateRequest(string MemoryId, string? Date);
+
+public sealed record RenameMemoryRequest(string MemoryId, string MemoryName);
 
 public sealed record ErrorResponse(string Error);
 
 public sealed record MediaItemView(string Id, string Url, MediaKind Type, DateTimeOffset? CapturedAt, bool IsCover);
-
-public sealed record IndexedView(
-    string MemoryId,
-    string MemoryName,
-    string DestinationName,
-    Coordinate? DestinationCoordinate,
-    DateTimeOffset IndexedAt,
-    string CoverUrl,
-    List<MediaItemView> MediaItems);
-
-public sealed record FolderView(string Path, bool Exists, IndexedView? Indexed);
 
 public sealed record SettingsView(
     string GazetteerPath, string GazetteerPathResolved, bool GazetteerExists,

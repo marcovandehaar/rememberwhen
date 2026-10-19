@@ -7,11 +7,11 @@ const WARN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1
 const STAR_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.9L22 9.6l-5.5 4.8L18 22l-6-3.9L6 22l1.5-7.6L2 9.6l7.1-.7L12 2Z"/></svg>';
 const ROTATE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"/></svg>';
 
-let folders = [];
-let selectedPath = null;
-let activeRun = null; // { path, runId, status, log, progressCurrent, progressTotal }
-const attempts = {}; // path -> { memoryName, destinationName, error } — survives a failed run so nothing needs retyping
-const lastNotices = {}; // path -> string[] — non-fatal log lines from the most recent successful run this session
+let memories = [];
+let selectedId = null;
+let activeRun = null; // { memoryId, runId, status, log, progressCurrent, progressTotal }
+const attempts = {}; // memoryId -> { error, cancelled } — what the last run of a Memory ended in
+const lastNotices = {}; // memoryId -> string[] — non-fatal log lines from the most recent successful run this session
 
 async function api(method, path, body) {
   const response = await fetch(path, {
@@ -159,81 +159,107 @@ function browseDialog() {
   });
 }
 
-/* ============================================================= sidebar */
+/* ============================================================= list */
 
-async function loadFolders({ preserveSelection = true } = {}) {
-  const [folderList, pending] = await Promise.all([
-    api('GET', '/api/folders'),
+// The list is of Memories (#65): a Trip is a Memory with a Destination, and a
+// Source Folder only exists inside a Memory.
+async function loadMemories({ preserveSelection = true } = {}) {
+  const [list, pending] = await Promise.all([
+    api('GET', '/api/memories'),
     api('GET', '/api/pending-publish'),
   ]);
-  folders = folderList;
-  if (!preserveSelection || !folders.some((f) => f.path === selectedPath)) {
-    selectedPath = folders[0]?.path ?? null;
+  memories = list;
+  if (!preserveSelection || !memories.some((m) => m.memoryId === selectedId)) {
+    selectedId = memories[0]?.memoryId ?? null;
   }
   renderSidebar();
   renderDetail();
   document.getElementById('open-deploy').disabled = !pending.hasPending;
 }
 
-let folderFilter = '';
+const isTrip = (m) => m.destinationName != null;
+const yearOf = (m) => (m.date ? m.date.slice(0, 4) : null);
 
-// Matches free text against whatever's shown for a folder — the Memory and
-// Destination name once indexed, the bare folder name before that (there's
-// nothing else to search on yet).
-function matchesFolderFilter(folder) {
-  if (!folderFilter) return true;
-  const haystack = folder.indexed
-    ? `${folder.indexed.memoryName} ${folder.indexed.destinationName}`
-    : leafName(folder.path);
-  return haystack.toLowerCase().includes(folderFilter);
+function formatDay(day) {
+  const [y, mo, d] = day.split('-').map(Number);
+  return new Date(y, mo - 1, d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+let kindFilter = 'all'; // all | trips | memories
+let searchFilter = '';
+
+// Matches free text against the name and the Destination.
+function matchesSearch(m) {
+  if (!searchFilter) return true;
+  return `${m.name} ${m.destinationName ?? ''}`.toLowerCase().includes(searchFilter);
+}
+
+const matchesKind = (m, kind) => kind === 'all' || (kind === 'trips') === isTrip(m);
+
 document.getElementById('folder-filter').addEventListener('input', (e) => {
-  folderFilter = e.target.value.trim().toLowerCase();
+  searchFilter = e.target.value.trim().toLowerCase();
   renderSidebar();
 });
+
+function renderKindFilter() {
+  const bar = document.getElementById('kind-filter');
+  bar.innerHTML = '';
+  for (const [kind, label] of [['all', 'Alles'], ['trips', 'Trips'], ['memories', 'Geen Trip']]) {
+    const count = memories.filter((m) => matchesKind(m, kind)).length;
+    const button = el(`<button type="button" class="${kind === kindFilter ? 'on' : ''}"></button>`);
+    button.textContent = `${label} ${count}`;
+    button.addEventListener('click', () => {
+      kindFilter = kind;
+      renderSidebar();
+    });
+    bar.append(button);
+  }
+}
 
 function renderSidebar() {
   const list = document.getElementById('folder-list');
   const empty = document.getElementById('folder-list-empty');
   const filterEmpty = document.getElementById('folder-filter-empty');
   list.innerHTML = '';
+  renderKindFilter();
 
-  const visible = folders.filter(matchesFolderFilter);
-  empty.hidden = folders.length > 0;
-  filterEmpty.hidden = folders.length === 0 || visible.length > 0;
+  const visible = memories.filter((m) => matchesKind(m, kindFilter) && matchesSearch(m));
+  empty.hidden = memories.length > 0;
+  filterEmpty.hidden = memories.length === 0 || visible.length > 0;
 
-  for (const folder of visible) {
-    // A folder's own name is meaningless once it's indexed — several
-    // folders can share a Destination (#44) and their leaf names don't
-    // say so. The Memory name is what actually distinguishes them; the
-    // folder name is only ever shown as a fallback before that exists.
-    const title = folder.indexed ? folder.indexed.memoryName : leafName(folder.path);
-    const item = el(`<li class="folder-item ${folder.path === selectedPath ? 'active' : ''}">
-      <div class="folder-thumb ${folder.exists ? '' : 'missing'}"></div>
-      <div class="folder-item-text">
-        <strong></strong>
-        <span class="meta ${folder.exists ? '' : 'missing'}"></span>
-      </div>
-    </li>`);
-
-    item.querySelector('strong').textContent = title;
-    const thumb = item.querySelector('.folder-thumb');
-    if (!folder.exists) {
-      thumb.innerHTML = WARN_ICON;
-    } else if (folder.indexed) {
-      thumb.style.backgroundImage = `url(${folder.indexed.coverUrl})`;
-    } else {
-      thumb.innerHTML = FOLDER_ICON;
+  // The server already orders: not-yet-indexed first, then newest first.
+  let group = undefined;
+  for (const m of visible) {
+    const heading = yearOf(m) ?? 'Nog niet geïndexeerd';
+    if (heading !== group) {
+      list.append(el(`<li class="year-head">${escapeHtml(heading)}</li>`));
+      group = heading;
     }
 
+    const item = el(`<li class="folder-item ${m.memoryId === selectedId ? 'active' : ''}">
+      <div class="folder-thumb"></div>
+      <div class="folder-item-text">
+        <strong></strong>
+        <span class="meta"></span>
+      </div>
+      <span class="badges"></span>
+    </li>`);
+
+    item.querySelector('strong').textContent = m.name;
+    const thumb = item.querySelector('.folder-thumb');
+    if (m.coverUrl) thumb.style.backgroundImage = `url(${m.coverUrl})`;
+    else thumb.innerHTML = FOLDER_ICON;
+
     const meta = item.querySelector('.meta');
-    if (!folder.exists) meta.textContent = 'Map niet gevonden';
-    else if (folder.indexed) meta.textContent = `${folder.indexed.destinationName} · ${folder.indexed.mediaItems.length} foto's`;
-    else meta.textContent = 'Nog niet geïndexeerd';
+    if (m.neverIndexed) meta.textContent = isTrip(m) ? m.destinationName : 'Nog niet geïndexeerd';
+    else meta.textContent = `${m.destinationName ?? 'Memory'} · ${m.mediaItems.length} foto's`;
+
+    const badges = item.querySelector('.badges');
+    if (isTrip(m)) badges.append(el('<span class="pin-badge" title="Trip">📍</span>'));
+    if (m.needsReindex) badges.append(el(`<span class="stale-dot" title="${m.neverIndexed ? 'Nog niet geïndexeerd' : 'Herindexeren nodig'}"></span>`));
 
     item.addEventListener('click', () => {
-      selectedPath = folder.path;
+      selectedId = m.memoryId;
       renderSidebar();
       renderDetail();
     });
@@ -241,121 +267,315 @@ function renderSidebar() {
   }
 }
 
-/* ============================================================= add folder */
+/* ============================================================= new memory */
 
-const addForm = document.getElementById('add-folder-form');
-const addInput = document.getElementById('add-folder-path');
-const addError = document.getElementById('add-folder-error');
-const browseButton = document.getElementById('browse-folder-button');
+document.getElementById('add-memory-button').addEventListener('click', openNewMemoryDialog);
 
-document.getElementById('add-folder-button').addEventListener('click', () => {
-  addForm.hidden = !addForm.hidden;
-  if (!addForm.hidden) browseButton.focus();
-});
+// A name plus a first Source Folder (the existing picker). The Memory sits
+// under "Nog niet geïndexeerd" until its first index.
+function openNewMemoryDialog() {
+  const dialog = el(`
+    <div class="sheet-overlay">
+      <div class="sheet" style="max-width:440px">
+        <div class="sheet-head">
+          <h2>Nieuwe Memory</h2>
+          <button type="button" class="icon-button subtle" id="new-memory-close" aria-label="Sluiten">${REMOVE_ICON}</button>
+        </div>
+        <div class="sheet-section" style="border-top:none">
+          <div class="field"><label for="new-memory-name">Naam</label><input type="text" id="new-memory-name" placeholder="Zeeland 2016" autocomplete="off" /></div>
+          <div class="field">
+            <label for="new-memory-path">Eerste Source Folder</label>
+            <div class="row" style="margin:0">
+              <button type="button" class="button small" id="new-memory-browse">Bladeren…</button>
+              <input type="text" id="new-memory-path" placeholder="of typ het pad…" autocomplete="off" />
+            </div>
+          </div>
+          <p class="error" id="new-memory-error" hidden></p>
+          <div class="row" style="justify-content:flex-end;margin-top:14px">
+            <button type="button" class="button ghost small" id="new-memory-cancel">Annuleren</button>
+            <button type="button" class="button small" id="new-memory-create">Aanmaken</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+  document.body.append(dialog);
 
-addInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { addForm.hidden = true; addInput.value = ''; addError.hidden = true; }
-});
+  const nameInput = dialog.querySelector('#new-memory-name');
+  const pathInput = dialog.querySelector('#new-memory-path');
+  const errorEl = dialog.querySelector('#new-memory-error');
+  const close = () => dialog.remove();
+  nameInput.focus();
 
-browseButton.addEventListener('click', async () => {
-  const picked = await browseDialog();
-  if (picked) await submitAddFolder(picked);
-});
-
-addForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const path = addInput.value.trim();
-  if (path) await submitAddFolder(path);
-});
-
-async function submitAddFolder(path) {
-  addError.hidden = true;
-  try {
-    await api('POST', '/api/folders', { path });
-    addInput.value = '';
-    addForm.hidden = true;
-    selectedPath = path;
-    await loadFolders();
-  } catch (err) {
-    addInput.value = path;
-    addError.textContent = err.message;
-    addError.hidden = false;
-  }
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
+  dialog.querySelector('#new-memory-close').addEventListener('click', close);
+  dialog.querySelector('#new-memory-cancel').addEventListener('click', close);
+  dialog.querySelector('#new-memory-browse').addEventListener('click', async () => {
+    const picked = await browseDialog();
+    if (picked) pathInput.value = picked;
+  });
+  dialog.querySelector('#new-memory-create').addEventListener('click', async () => {
+    errorEl.hidden = true;
+    const name = nameInput.value.trim();
+    const path = pathInput.value.trim();
+    if (!name || !path) {
+      errorEl.textContent = 'Vul een naam en een Source Folder in.';
+      errorEl.hidden = false;
+      return;
+    }
+    try {
+      const created = await api('POST', '/api/memories', { name, path });
+      close();
+      kindFilter = 'all';
+      searchFilter = '';
+      document.getElementById('folder-filter').value = '';
+      selectedId = created.find((m) => m.name === name)?.memoryId ?? selectedId;
+      await loadMemories();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.hidden = false;
+    }
+  });
 }
 
 /* ============================================================= detail pane */
 
 function renderDetail() {
   const detail = document.getElementById('detail');
-  const folder = folders.find((f) => f.path === selectedPath);
+  const memory = memories.find((m) => m.memoryId === selectedId);
 
-  if (!folder) {
-    detail.innerHTML = '<div class="empty-state centered"><p>Selecteer een map, of voeg er een toe.</p></div>';
+  if (!memory) {
+    detail.innerHTML = '<div class="empty-state centered"><p>Selecteer een Memory, of maak er een.</p></div>';
     return;
   }
 
-  if (activeRun && activeRun.path === folder.path) {
-    renderRunningDetail(detail, folder);
-  } else if (folder.indexed) {
-    renderIndexedDetail(detail, folder);
-  } else {
-    renderUnindexedDetail(detail, folder);
+  if (activeRun && activeRun.memoryId === memory.memoryId) renderRunningDetail(detail, memory);
+  else renderMemoryDetail(detail, memory);
+}
+
+const kindLine = (m) => (isTrip(m)
+  ? `Trip 📍 ${escapeHtml(m.destinationName)}`
+  : 'Memory, geen Trip: niet op de globe');
+
+const dateLine = (m) => {
+  if (m.neverIndexed && !m.dateOverride) return '<span class="dim">— (na het eerste indexeren)</span>';
+  const shown = formatDay(m.dateOverride ?? m.date);
+  if (m.dateOverride) {
+    const standard = m.defaultDate ? ` <span class="dim">(standaard ${formatDay(m.defaultDate)})</span>` : '';
+    return `${shown} <span class="override" title="Handmatig ingesteld">✎</span>${standard}`;
+  }
+  return `${shown} <span class="dim">(vroegste foto)</span>`;
+};
+
+function renderMemoryDetail(detail, m) {
+  const reindexError = attempts[m.memoryId]?.error;
+  const reindexCancelled = !reindexError && attempts[m.memoryId]?.cancelled;
+  const notices = lastNotices[m.memoryId] ?? [];
+  const onlyFolder = m.folders.length <= 1;
+  const stale = m.needsReindex
+    ? `<span class="stale-pill">${m.neverIndexed ? 'nog niet geïndexeerd' : 'herindexeren nodig'}</span>`
+    : '';
+
+  detail.innerHTML = `
+    <div class="detail-head">
+      <div>
+        <h2>${escapeHtml(m.name)} ${stale}</h2>
+        ${m.neverIndexed ? '' : `<div class="detail-sub">${m.mediaItems.length} foto's · geïndexeerd op ${formatDate(m.indexedAt)}</div>`}
+      </div>
+      <div class="detail-actions">
+        <button type="button" class="button ghost small" id="rename-button" title="Wijzigt de naam (bijv. een verkeerd jaar), zonder opnieuw te indexeren">Naam wijzigen</button>
+        <button type="button" class="button ${m.needsReindex ? '' : 'ghost'} small" id="reindex-button">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'}</button>
+        <button type="button" class="button danger small" id="remove-memory-button">Verwijderen</button>
+      </div>
+    </div>
+    ${reindexError ? `<p class="error" style="max-width:480px">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'} mislukt: ${escapeHtml(reindexError)}</p>` : ''}
+    ${reindexCancelled ? `<p class="hint" style="max-width:480px">Indexeren geannuleerd; er is niets gepubliceerd of gewijzigd.</p>` : ''}
+    <div id="name-editor"></div>
+
+    <div class="mem-field">
+      <label>Soort</label>
+      <div>${kindLine(m)}
+        <button type="button" class="button ghost small" id="kind-button">${isTrip(m) ? 'Destination wijzigen…' : 'Maak er een Trip van…'}</button>
+      </div>
+      <div id="kind-editor"></div>
+    </div>
+
+    <div class="mem-field">
+      <label>Datum</label>
+      <div>${dateLine(m)} <button type="button" class="button ghost small" id="date-button">Wijzigen…</button></div>
+      <div id="date-editor"></div>
+    </div>
+
+    <div class="mem-field">
+      <label>Source Folders</label>
+      <ul class="mem-folders" id="mem-folders"></ul>
+      <div><button type="button" class="button ghost small" id="add-folder-to-memory-button">+ Map toevoegen…</button></div>
+      <p class="error" id="folder-error" style="max-width:480px" hidden></p>
+    </div>
+
+    ${notices.length > 0 ? `
+      <details class="notices">
+        <summary>${notices.length} melding${notices.length === 1 ? '' : 'en'} tijdens het indexeren</summary>
+        <ul>${notices.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
+      </details>
+    ` : ''}
+    ${m.neverIndexed ? '' : `
+      <p class="media-caption">Een foto hier verwijderen past alleen dit resultaat aan — bij herindexeren verschijnen alle foto's uit de mappen weer.</p>
+      <div class="media-grid" id="media-grid"></div>
+      <p class="error" id="media-item-error" style="max-width:480px" hidden></p>
+    `}
+  `;
+
+  const folderList = document.getElementById('mem-folders');
+  for (const folder of m.folders) {
+    const row = el(`<li class="${folder.exists ? '' : 'missing'}"><span class="path"></span><em class="shared"></em><button type="button" class="icon-button subtle" aria-label="Map verwijderen">${REMOVE_ICON}</button></li>`);
+    row.querySelector('.path').textContent = folder.path;
+    row.querySelector('.path').title = folder.path;
+    if (!folder.exists) row.querySelector('.path').after(el('<em class="shared warn">niet gevonden</em>'));
+    row.querySelector('.shared').textContent = folder.alsoIn > 0 ? `ook in ${folder.alsoIn} andere` : '';
+    const remove = row.querySelector('button');
+    remove.disabled = onlyFolder;
+    remove.title = onlyFolder ? 'Er moet minstens één map overblijven' : 'Map uit deze Memory halen';
+    remove.addEventListener('click', () => removeFolderFromMemory(m, folder.path));
+    folderList.append(row);
+  }
+
+  if (!m.neverIndexed) renderMediaGrid(m);
+
+  document.getElementById('rename-button').addEventListener('click', () => openNameEditor(m));
+  document.getElementById('reindex-button').addEventListener('click', () => indexMemory(m));
+  document.getElementById('remove-memory-button').addEventListener('click', () => removeMemory(m));
+  document.getElementById('kind-button').addEventListener('click', () => openKindEditor(m));
+  document.getElementById('date-button').addEventListener('click', () => openDateEditor(m));
+  document.getElementById('add-folder-to-memory-button').addEventListener('click', () => addFolderToMemory(m));
+}
+
+function renderMediaGrid(m) {
+  const grid = document.getElementById('media-grid');
+  // <img loading="lazy"> defers fetching until a tile nears the viewport,
+  // but <video> has no such attribute — setting `src` up front made every
+  // video in the memory (dozens, for a trip with lots of clips) start
+  // loading the instant the grid rendered, stalling the photo loads
+  // alongside it. One IntersectionObserver per render gives video tiles the
+  // same lazy behaviour: `src` is only set once a tile actually scrolls
+  // into (near) view.
+  const videoObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const video = entry.target;
+      video.src = video.dataset.src;
+      videoObserver.unobserve(video);
+    }
+  }, { rootMargin: '200px' });
+
+  for (const item of m.mediaItems) {
+    const tile = el(`<div class="media-tile"></div>`);
+    if (item.type === 'video') {
+      tile.innerHTML = `<video muted></video>`;
+      const video = tile.querySelector('video');
+      video.dataset.src = item.url;
+      videoObserver.observe(video);
+    } else {
+      tile.innerHTML = `<img src="${item.url}" loading="lazy" alt="" />`;
+    }
+    if (item.isCover) {
+      tile.append(el('<span class="cover-badge">Cover</span>'));
+    } else {
+      const removeButton = el(`<button type="button" class="remove-item" title="Verwijder deze foto">${REMOVE_ICON}</button>`);
+      removeButton.addEventListener('click', () => removeMediaItem(m.memoryId, item.id, tile));
+      tile.append(removeButton);
+
+      if (item.type !== 'video') {
+        const coverButton = el(`<button type="button" class="set-cover-item" title="Wil je deze als cover zetten?">${STAR_ICON}</button>`);
+        coverButton.addEventListener('click', () => setCoverMediaItem(m.memoryId, item.id));
+        tile.append(coverButton);
+      }
+    }
+
+    // Rotating the current cover is exactly as valid as any other photo —
+    // it's the one tile the buttons above deliberately skip, so this needs
+    // its own check rather than living inside that if/else.
+    if (item.type !== 'video') {
+      const rotateButton = el(`<button type="button" class="rotate-item" title="Roteer 90°">${ROTATE_ICON}</button>`);
+      rotateButton.addEventListener('click', () => rotateMediaItem(m.memoryId, item.id));
+      tile.append(rotateButton);
+    }
+
+    grid.append(tile);
   }
 }
 
-function renderUnindexedDetail(detail, folder) {
-  const leaf = folder.path.split(/[\\/]/).filter(Boolean).pop() ?? folder.path;
-  const attempt = attempts[folder.path];
-  detail.innerHTML = `
-    <div class="detail-head"><h2>${leaf}</h2></div>
-    <p class="detail-path">${folder.path}</p>
-    <div class="detail-sub">${folder.exists ? 'Nog niet geïndexeerd.' : 'Deze map bestaat niet (meer) op deze locatie.'}</div>
-    ${attempt?.error ? `<p class="error" style="max-width:480px">Indexeren mislukt: ${attempt.error}</p>` : ''}
-    ${!attempt?.error && attempt?.cancelled ? `<p class="hint" style="max-width:480px">Indexeren geannuleerd; niets gepubliceerd.</p>` : ''}
-    ${folder.exists ? `
-      <div class="field"><label for="memory-name">Memory-naam</label><input type="text" id="memory-name" placeholder="Zeeland 2016" value="${attempt?.memoryName ?? ''}" /></div>
-      <div class="field">
-        <label for="destination-name">Destination-naam</label>
-        <div class="row" style="margin:0">
-          <input type="text" id="destination-name" list="destination-names" placeholder="Zeeland" value="${attempt?.destinationName ?? ''}" />
-          <button type="button" class="button ghost small" id="suggest-coordinate-button">Coördinaat voorstellen</button>
-        </div>
-      </div>
-      <div id="gazetteer-suggestion"></div>
-      <button type="button" class="button" id="index-button">Indexeer</button>
-      <p class="error" id="index-error" hidden></p>
-    ` : ''}
-    <div style="margin-top:24px">
-      <button type="button" class="button danger small" id="remove-folder-button">Map verwijderen</button>
-    </div>
-  `;
+/* ---- Source Folders of a Memory: only the configuration changes and the
+   Memory gets the reindex dot; nothing is rebuilt until it is reindexed. */
 
-  const indexButton = document.getElementById('index-button');
-  if (indexButton) {
-    indexButton.addEventListener('click', async () => {
-      const errorEl = document.getElementById('index-error');
-      errorEl.hidden = true;
-      const memoryName = document.getElementById('memory-name').value.trim();
-      const destinationName = document.getElementById('destination-name').value.trim();
-      if (!memoryName || !destinationName) {
-        errorEl.textContent = 'Vul zowel een Memory-naam als een Destination-naam in.';
-        errorEl.hidden = false;
-        return;
-      }
-      try {
-        await startIndex(folder.path, memoryName, destinationName);
-      } catch (err) {
-        errorEl.textContent = err.message;
-        errorEl.hidden = false;
-      }
-    });
+async function addFolderToMemory(m) {
+  const picked = await browseDialog();
+  if (!picked) return;
+  const errorEl = document.getElementById('folder-error');
+  errorEl.hidden = true;
+  try {
+    await api('POST', '/api/memories/folders', { memoryId: m.memoryId, path: picked });
+    await loadMemories();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
   }
+}
 
-  document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
+async function removeFolderFromMemory(m, path) {
+  const errorEl = document.getElementById('folder-error');
+  errorEl.hidden = true;
+  try {
+    await api('DELETE', `/api/memories/folders?memoryId=${encodeURIComponent(m.memoryId)}&path=${encodeURIComponent(path)}`);
+    await loadMemories();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+}
 
-  const suggestButton = document.getElementById('suggest-coordinate-button');
-  if (suggestButton) {
-    suggestButton.addEventListener('click', () => suggestCoordinate(document.getElementById('destination-name').value.trim()));
+/* ---- Soort: a Trip is a Memory with a Destination. Applied at once. */
+
+function openKindEditor(m) {
+  const box = document.getElementById('kind-editor');
+  box.innerHTML = `
+    <div class="row" style="margin:8px 0">
+      <input type="text" id="kind-destination-input" list="destination-names" placeholder="Zeeland" value="${escapeHtml(m.destinationName ?? '')}" />
+      <button type="button" class="button small" id="apply-kind-button">${isTrip(m) ? 'Bijwerken' : 'Maak Trip'}</button>
+      <button type="button" class="button ghost small" id="suggest-coordinate-button">Coördinaat voorstellen</button>
+      ${isTrip(m) ? '<button type="button" class="button ghost small" id="clear-kind-button">Geen Trip meer</button>' : ''}
+      <button type="button" class="button ghost small" id="cancel-kind-button">Annuleren</button>
+    </div>
+    <div id="gazetteer-suggestion"></div>
+    <p class="hint" style="max-width:480px">${m.neverIndexed ? 'Wordt gebruikt bij het eerste indexeren.' : 'Direct toegepast, zonder opnieuw te indexeren; op de globe na het volgende publiceren.'}</p>
+    <p class="error" id="kind-error" style="max-width:480px" hidden></p>
+  `;
+  const input = box.querySelector('#kind-destination-input');
+  input.focus();
+  input.select();
+  box.querySelector('#cancel-kind-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#suggest-coordinate-button').addEventListener('click', () => suggestCoordinate(input.value.trim()));
+  box.querySelector('#apply-kind-button').addEventListener('click', (e) => applyDestination(m, input.value.trim(), e.currentTarget));
+  box.querySelector('#clear-kind-button')?.addEventListener('click', (e) => applyDestination(m, '', e.currentTarget));
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-kind-button').click(); });
+}
+
+async function applyDestination(m, destinationName, button) {
+  const errorEl = document.getElementById('kind-error');
+  errorEl.hidden = true;
+  if (!destinationName && !isTrip(m)) {
+    errorEl.textContent = 'Vul een Destination-naam in, of annuleer.';
+    errorEl.hidden = false;
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api('PUT', '/api/memories/destination', { memoryId: m.memoryId, destinationName });
+    await loadMemories();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+    button.disabled = false;
   }
 }
 
@@ -381,9 +601,9 @@ async function suggestCoordinate(name) {
 
   box.innerHTML = `
     <div class="suggestion-card">
-      <p class="hint">${suggestion.displayName}</p>
+      <p class="hint">${escapeHtml(suggestion.displayName)}</p>
       <div class="row" style="margin:8px 0">
-        <input type="text" id="suggestion-name" value="${name}" />
+        <input type="text" id="suggestion-name" value="${escapeHtml(name)}" />
         <input type="number" id="suggestion-lat" value="${suggestion.lat}" step="any" min="-90" max="90" />
         <input type="number" id="suggestion-lon" value="${suggestion.lon}" step="any" min="-180" max="180" />
       </div>
@@ -415,15 +635,119 @@ async function suggestCoordinate(name) {
   });
 }
 
-async function startIndex(path, memoryName, destinationName) {
-  attempts[path] = { memoryName, destinationName };
-  const { runId } = await api('POST', '/api/folders/index', { path, memoryName, destinationName });
-  activeRun = { path, runId, status: 'running', log: [], progressCurrent: null, progressTotal: null };
+/* ---- Datum: an override lives in config.json; empty means the default. */
+
+function openDateEditor(m) {
+  const box = document.getElementById('date-editor');
+  box.innerHTML = `
+    <div class="row" style="margin:8px 0">
+      <input type="date" id="date-input" value="${m.dateOverride ?? ''}" />
+      <button type="button" class="button small" id="apply-date-button">Opslaan</button>
+      ${m.dateOverride ? '<button type="button" class="button ghost small" id="clear-date-button">Standaard gebruiken</button>' : ''}
+      <button type="button" class="button ghost small" id="cancel-date-button">Annuleren</button>
+    </div>
+    <p class="hint" style="max-width:480px">Leeg laten = de datum van de vroegste foto${m.defaultDate ? ` (${formatDay(m.defaultDate)})` : ''}. Direct toegepast.</p>
+    <p class="error" id="date-error" style="max-width:480px" hidden></p>
+  `;
+  const input = box.querySelector('#date-input');
+  input.focus();
+  box.querySelector('#cancel-date-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#apply-date-button').addEventListener('click', (e) => applyDate(m, input.value, e.currentTarget));
+  box.querySelector('#clear-date-button')?.addEventListener('click', (e) => applyDate(m, '', e.currentTarget));
+}
+
+async function applyDate(m, date, button) {
+  const errorEl = document.getElementById('date-error');
+  errorEl.hidden = true;
+  button.disabled = true;
+  try {
+    await api('PUT', '/api/memories/date', { memoryId: m.memoryId, date });
+    await loadMemories();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+    button.disabled = false;
+  }
+}
+
+/* ---- name */
+
+// Fixes a mistyped name in place (no rescan, so no lost curation). The
+// Memory's id and media filenames follow the new name on the next reindex;
+// the old files already published to the NAS stay there until removed by
+// hand, and the new ones go out with the next publish.
+function openNameEditor(m) {
+  const box = document.getElementById('name-editor');
+  box.innerHTML = `
+    <div class="row" style="margin:8px 0">
+      <input type="text" id="memory-name-input" value="${escapeHtml(m.name)}" />
+      <button type="button" class="button small" id="apply-name-button">Opslaan</button>
+      <button type="button" class="button ghost small" id="cancel-name-button">Annuleren</button>
+    </div>
+    <p class="error" id="name-error" style="max-width:480px" hidden></p>
+  `;
+  const input = box.querySelector('#memory-name-input');
+  input.focus();
+  input.select();
+  box.querySelector('#cancel-name-button').addEventListener('click', () => { box.innerHTML = ''; });
+  box.querySelector('#apply-name-button').addEventListener('click', (e) => applyName(m, input.value.trim(), e.currentTarget));
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-name-button').click(); });
+}
+
+async function applyName(m, memoryName, button) {
+  const errorEl = document.getElementById('name-error');
+  errorEl.hidden = true;
+  if (!memoryName) {
+    errorEl.textContent = 'Vul een Memory-naam in.';
+    errorEl.hidden = false;
+    return;
+  }
+  if (memoryName === m.name) {
+    document.getElementById('name-editor').innerHTML = '';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api('PUT', '/api/memories/name', { memoryId: m.memoryId, memoryName });
+    await loadMemories();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+    button.disabled = false;
+  }
+}
+
+/* ---- indexing */
+
+async function startIndex(memoryId) {
+  const { runId } = await api('POST', '/api/memories/index', { memoryId });
+  activeRun = { memoryId, runId, status: 'running', log: [], progressCurrent: null, progressTotal: null };
   renderDetail();
   pollRun();
 }
 
-function renderRunningDetail(detail, folder) {
+// One click away from a rescan that silently brings back every removed
+// photo (see the caption above the grid) — worth the same are-you-sure as
+// deleting the Memory outright. A first index has nothing to lose.
+async function indexMemory(m) {
+  if (!m.neverIndexed) {
+    const confirmed = await confirmDialog({
+      title: `"${escapeHtml(m.name)}" opnieuw indexeren?`,
+      message: `Dit scant alle mappen van deze Memory opnieuw. Verwijderde foto's verschijnen weer; de rest blijft zoals het was.`,
+      confirmLabel: 'Herindexeren',
+    });
+    if (!confirmed) return;
+  }
+
+  try {
+    await startIndex(m.memoryId);
+  } catch (err) {
+    attempts[m.memoryId] = { error: err.message };
+    renderDetail();
+  }
+}
+
+function renderRunningDetail(detail, m) {
   const { progressCurrent, progressTotal, cancelling } = activeRun;
   // No value/max attribute at all (rather than 0/0) renders as the browser's
   // built-in indeterminate/striped animation — the honest state before the
@@ -431,7 +755,7 @@ function renderRunningDetail(detail, folder) {
   const hasProgress = progressTotal != null && progressTotal > 0;
   detail.innerHTML = `
     <div class="detail-head">
-      <h2>${leafName(folder.path)}</h2>
+      <h2>${escapeHtml(m.name)}</h2>
       <div class="detail-actions">
         <button type="button" class="button ghost small" id="cancel-run-button" ${cancelling ? 'disabled' : ''}>
           ${cancelling ? 'Bezig met annuleren…' : 'Annuleren'}
@@ -478,214 +802,34 @@ async function pollRun() {
     }
 
     if (state.status === 'failed') {
-      attempts[run.path] = { ...attempts[run.path], error: state.error };
+      attempts[run.memoryId] = { error: state.error };
     } else if (state.status === 'cancelled') {
-      attempts[run.path] = { ...attempts[run.path], cancelled: true };
+      attempts[run.memoryId] = { cancelled: true };
     } else {
-      delete attempts[run.path];
+      delete attempts[run.memoryId];
       // The final "Catalogus bijgewerkt: ..." line just confirms success; only
       // earlier lines (skipped files, timestamp fallbacks, ...) are worth surfacing.
-      lastNotices[run.path] = state.log.slice(0, -1);
+      lastNotices[run.memoryId] = state.log.slice(0, -1);
     }
 
-    await loadFolders();
+    await loadMemories();
     activeRun = null;
     renderDetail();
   } catch (err) {
-    attempts[run.path] = { ...attempts[run.path], error: err.message };
+    attempts[run.memoryId] = { error: err.message };
     activeRun = null;
     renderDetail();
   }
 }
 
-function renderIndexedDetail(detail, folder) {
-  const idx = folder.indexed;
-  const reindexError = attempts[folder.path]?.error;
-  const reindexCancelled = !reindexError && attempts[folder.path]?.cancelled;
-  const notices = lastNotices[folder.path] ?? [];
-
-  detail.innerHTML = `
-    <div class="detail-head">
-      <div>
-        <h2>${idx.memoryName}</h2>
-        <div class="detail-sub">${idx.destinationName} · ${idx.mediaItems.length} foto's · geïndexeerd op ${formatDate(idx.indexedAt)}</div>
-        <p class="detail-path">${folder.path}</p>
-      </div>
-      <div class="detail-actions">
-        <button type="button" class="button ghost small" id="rename-button" title="Wijzigt de naam van deze reis (bijv. een verkeerd jaar), zonder opnieuw te indexeren">Naam wijzigen</button>
-        <button type="button" class="button ghost small" id="refresh-coordinate-button" title="Haalt de coördinaat opnieuw op uit de Gazetteer, zonder opnieuw te indexeren">Coördinaat vernieuwen</button>
-        <button type="button" class="button ghost small" id="reindex-button">Herindexeren</button>
-        <button type="button" class="button danger small" id="remove-folder-button">Verwijderen</button>
-      </div>
-    </div>
-    ${reindexError ? `<p class="error" style="max-width:480px">Herindexeren mislukt: ${reindexError}</p>` : ''}
-    ${reindexCancelled ? `<p class="hint" style="max-width:480px">Herindexeren geannuleerd; de bestaande foto's hierboven staan nog onveranderd.</p>` : ''}
-    <div id="name-editor"></div>
-    <div id="coordinate-picker"></div>
-    ${notices.length > 0 ? `
-      <details class="notices">
-        <summary>${notices.length} melding${notices.length === 1 ? '' : 'en'} tijdens het indexeren</summary>
-        <ul>${notices.map((line) => `<li>${line}</li>`).join('')}</ul>
-      </details>
-    ` : ''}
-    <p class="media-caption">Een foto hier verwijderen past alleen dit resultaat aan — bij herindexeren verschijnen alle foto's uit de map weer.</p>
-    <div class="media-grid" id="media-grid"></div>
-    <p class="error" id="media-item-error" style="max-width:480px" hidden></p>
-  `;
-
-  const grid = document.getElementById('media-grid');
-  // <img loading="lazy"> defers fetching until a tile nears the viewport,
-  // but <video> has no such attribute — setting `src` up front made every
-  // video in the memory (dozens, for a trip with lots of clips) start
-  // loading the instant the grid rendered, stalling the photo loads
-  // alongside it. One IntersectionObserver per render gives video tiles the
-  // same lazy behaviour: `src` is only set once a tile actually scrolls
-  // into (near) view.
-  const videoObserver = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      const video = entry.target;
-      video.src = video.dataset.src;
-      videoObserver.unobserve(video);
-    }
-  }, { rootMargin: '200px' });
-
-  for (const item of idx.mediaItems) {
-    const tile = el(`<div class="media-tile"></div>`);
-    if (item.type === 'video') {
-      tile.innerHTML = `<video muted></video>`;
-      const video = tile.querySelector('video');
-      video.dataset.src = item.url;
-      videoObserver.observe(video);
-    } else {
-      tile.innerHTML = `<img src="${item.url}" loading="lazy" alt="" />`;
-    }
-    if (item.isCover) {
-      tile.append(el('<span class="cover-badge">Cover</span>'));
-    } else {
-      const removeButton = el(`<button type="button" class="remove-item" title="Verwijder deze foto">${REMOVE_ICON}</button>`);
-      removeButton.addEventListener('click', () => removeMediaItem(idx.memoryId, item.id, tile));
-      tile.append(removeButton);
-
-      if (item.type !== 'video') {
-        const coverButton = el(`<button type="button" class="set-cover-item" title="Wil je deze als cover zetten?">${STAR_ICON}</button>`);
-        coverButton.addEventListener('click', () => setCoverMediaItem(idx.memoryId, item.id));
-        tile.append(coverButton);
-      }
-    }
-
-    // Rotating the current cover is exactly as valid as any other photo —
-    // it's the one tile the buttons above deliberately skip, so this needs
-    // its own check rather than living inside that if/else.
-    if (item.type !== 'video') {
-      const rotateButton = el(`<button type="button" class="rotate-item" title="Roteer 90°">${ROTATE_ICON}</button>`);
-      rotateButton.addEventListener('click', () => rotateMediaItem(idx.memoryId, item.id));
-      tile.append(rotateButton);
-    }
-
-    grid.append(tile);
-  }
-
-  document.getElementById('rename-button').addEventListener('click', () => openNameEditor(folder, idx.memoryName));
-  document.getElementById('refresh-coordinate-button').addEventListener('click', () => openCoordinatePicker(folder, idx.destinationName));
-  document.getElementById('reindex-button').addEventListener('click', () => reindexFolder(folder));
-  document.getElementById('remove-folder-button').addEventListener('click', () => removeFolder(folder));
-}
-
-// Picking the same Destination back just refreshes the coordinate (the
-// common case: a corrected Gazetteer entry); picking a different one
-// re-homes the Memory to it. Either way this skips the rescan — and lost
-// curation — a full reindex would also bring. The globe pin only picks up
-// the result after the next publish.
-function openCoordinatePicker(folder, currentDestinationName) {
-  const box = document.getElementById('coordinate-picker');
-  box.innerHTML = `
-    <div class="row" style="margin:8px 0">
-      <input type="text" id="coordinate-destination-input" list="destination-names" value="${currentDestinationName}" />
-      <button type="button" class="button small" id="apply-coordinate-button">Bijwerken</button>
-      <button type="button" class="button ghost small" id="cancel-coordinate-button">Annuleren</button>
-    </div>
-    <p class="error" id="coordinate-error" style="max-width:480px" hidden></p>
-  `;
-  const input = box.querySelector('#coordinate-destination-input');
-  input.focus();
-  input.select();
-  box.querySelector('#cancel-coordinate-button').addEventListener('click', () => { box.innerHTML = ''; });
-  box.querySelector('#apply-coordinate-button').addEventListener('click', (e) =>
-    applyCoordinate(folder.path, input.value.trim(), e.currentTarget));
-}
-
-// Fixes a mistyped name in place (no rescan, so no lost curation). The
-// Memory's id and media filenames follow the new name; the old files already
-// published to the NAS stay there until removed by hand, and the new ones go
-// out with the next publish.
-function openNameEditor(folder, currentName) {
-  const box = document.getElementById('name-editor');
-  box.innerHTML = `
-    <div class="row" style="margin:8px 0">
-      <input type="text" id="memory-name-input" value="${currentName}" />
-      <button type="button" class="button small" id="apply-name-button">Opslaan</button>
-      <button type="button" class="button ghost small" id="cancel-name-button">Annuleren</button>
-    </div>
-    <p class="error" id="name-error" style="max-width:480px" hidden></p>
-  `;
-  const input = box.querySelector('#memory-name-input');
-  input.focus();
-  input.select();
-  box.querySelector('#cancel-name-button').addEventListener('click', () => { box.innerHTML = ''; });
-  box.querySelector('#apply-name-button').addEventListener('click', (e) =>
-    applyName(folder.path, input.value.trim(), currentName, e.currentTarget));
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-name-button').click(); });
-}
-
-async function applyName(path, memoryName, currentName, button) {
-  const errorEl = document.getElementById('name-error');
-  errorEl.hidden = true;
-  if (!memoryName) {
-    errorEl.textContent = 'Vul een Memory-naam in.';
-    errorEl.hidden = false;
-    return;
-  }
-  if (memoryName === currentName) {
-    document.getElementById('name-editor').innerHTML = '';
-    return;
-  }
-  button.disabled = true;
-  try {
-    await api('PUT', '/api/memories/name', { path, memoryName });
-    await loadFolders();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-    button.disabled = false;
-  }
-}
-
-async function applyCoordinate(path, destinationName, button) {
-  const errorEl = document.getElementById('coordinate-error');
-  errorEl.hidden = true;
-  if (!destinationName) {
-    errorEl.textContent = 'Vul een Destination-naam in.';
-    errorEl.hidden = false;
-    return;
-  }
-  button.disabled = true;
-  try {
-    await api('PUT', '/api/memories/coordinate', { path, destinationName });
-    await loadFolders();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-    button.disabled = false;
-  }
-}
+/* ---- review: photos of one Memory */
 
 async function setCoverMediaItem(memoryId, itemId) {
   const errorEl = document.getElementById('media-item-error');
   errorEl.hidden = true;
   try {
     await api('PUT', '/api/media-items/cover', { memoryId, itemId });
-    await loadFolders();
+    await loadMemories();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
@@ -697,7 +841,7 @@ async function rotateMediaItem(memoryId, itemId) {
   errorEl.hidden = true;
   try {
     await api('POST', '/api/media-items/rotate', { memoryId, itemId });
-    await loadFolders();
+    await loadMemories();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
@@ -710,7 +854,7 @@ async function removeMediaItem(memoryId, itemId, tile) {
   tile.style.opacity = '0.4';
   try {
     await api('DELETE', `/api/media-items?memoryId=${encodeURIComponent(memoryId)}&itemId=${encodeURIComponent(itemId)}`);
-    await loadFolders();
+    await loadMemories();
   } catch (err) {
     tile.style.opacity = '1';
     errorEl.textContent = err.message;
@@ -718,32 +862,17 @@ async function removeMediaItem(memoryId, itemId, tile) {
   }
 }
 
-// One click away from a rescan that silently brings back every removed
-// photo (see the caption above the grid) — worth the same are-you-sure as
-// deleting the folder outright.
-async function reindexFolder(folder) {
-  const confirmed = await confirmDialog({
-    title: `"${leafName(folder.path)}" opnieuw indexeren?`,
-    message: `Dit scant de map opnieuw. Verwijderde foto's uit deze reis verschijnen weer; de rest blijft zoals het was.`,
-    confirmLabel: 'Herindexeren',
-  });
+async function removeMemory(m) {
+  const message = m.neverIndexed
+    ? `"${escapeHtml(m.name)}" wordt uit de lijst verwijderd.`
+    : `Dit verwijdert ook de gepubliceerde foto's van deze Memory.`;
+  const confirmed = await confirmDialog({ title: `"${escapeHtml(m.name)}" verwijderen?`, message, confirmLabel: 'Verwijderen' });
   if (!confirmed) return;
 
-  await startIndex(folder.path);
-}
-
-async function removeFolder(folder) {
-  const label = leafName(folder.path);
-  const message = folder.indexed
-    ? `Dit verwijdert ook de gepubliceerde foto's van deze reis.`
-    : `"${label}" wordt uit de lijst verwijderd.`;
-  const confirmed = await confirmDialog({ title: `"${label}" verwijderen?`, message, confirmLabel: 'Verwijderen' });
-  if (!confirmed) return;
-
-  await api('DELETE', `/api/folders?path=${encodeURIComponent(folder.path)}`);
-  delete attempts[folder.path];
-  delete lastNotices[folder.path];
-  await loadFolders({ preserveSelection: false });
+  await api('DELETE', `/api/memories?memoryId=${encodeURIComponent(m.memoryId)}`);
+  delete attempts[m.memoryId];
+  delete lastNotices[m.memoryId];
+  await loadMemories({ preserveSelection: false });
 }
 
 /* ============================================================= settings sheet */
@@ -863,7 +992,7 @@ document.getElementById('edit-gazetteer-path-button').addEventListener('click', 
   const settings = await api('PUT', '/api/settings/gazetteer-path', { path: next });
   renderSettings(settings);
   await loadGazetteer(settings);
-  await loadFolders();
+  await loadMemories();
 });
 
 document.getElementById('create-gazetteer-button').addEventListener('click', async () => {
@@ -895,7 +1024,7 @@ document.getElementById('save-output-folder-button').addEventListener('click', a
   try {
     const settings = await api('PUT', '/api/settings/output-folder', { path: document.getElementById('output-folder').value });
     renderSettings(settings);
-    await loadFolders();
+    await loadMemories();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
@@ -1123,7 +1252,7 @@ document.getElementById('cancel-deploy-button').addEventListener('click', async 
 
 function finishDeploy(deploy) {
   renderDeploy();
-  loadFolders(); // a succeeded publish drains whatever was pending — flips the button back off
+  loadMemories(); // a succeeded publish drains whatever was pending — flips the button back off
 
   if (!deployOverlay.hidden) return; // being read — closing the sheet clears it
   if (deploy.status === 'cancelled') { activeDeploy = null; renderDeploy(); return; }
@@ -1172,7 +1301,7 @@ async function pollDeploy() {
 // server-side — pick it back up so the indicator is there straight away.
 api('GET', '/api/deploy/active').then(({ runId }) => { if (runId && !activeDeploy) beginDeploy(runId); }).catch(() => {});
 
-loadFolders();
+loadMemories();
 // Eager, independent of the settings sheet: the index-folder flow's own
 // Destination-naam field needs suggestions without a detour through Settings.
 fetchGazetteerEntries().then(refreshDestinationNames);

@@ -26,13 +26,12 @@ public class IndexerConfigTests : IDisposable
     {
         var path = Path.Combine(_root, "config.json");
         Directory.CreateDirectory(_root);
-        var config = new IndexerConfig
-        {
-            GazetteerPath = "gazetteer.json",
-            OutputFolder = "output",
-            SourceFoldersRoot = "\\\\vandehaarnas\\Fotos",
-        };
-        config.RecordIndexed("C:\\Photos\\Schotland 2010", "schotland-2010", "Schotland 2010", "Schotland", Day);
+        var config = ConfigWithMemory("schotland-2010", "C:\\Photos\\Schotland 2010");
+        config.GazetteerPath = "gazetteer.json";
+        config.OutputFolder = "output";
+        config.SourceFoldersRoot = "\\\\vandehaarnas\\Fotos";
+        config.Memories[0].DestinationName = "Schotland";
+        config.Memories[0].DateOverride = new DateOnly(2010, 8, 3);
 
         config.Save(path);
         var reloaded = IndexerConfig.Load(path);
@@ -42,153 +41,10 @@ public class IndexerConfigTests : IDisposable
         Assert.Equal(config.SourceFoldersRoot, reloaded.SourceFoldersRoot);
         var memory = Assert.Single(reloaded.Memories);
         Assert.Equal("schotland-2010", memory.MemoryId);
+        Assert.Equal("Schotland", memory.DestinationName);
         Assert.Equal(Day, memory.DefaultDate);
+        Assert.Equal(new DateOnly(2010, 8, 3), memory.DateOverride);
         Assert.Equal(["C:\\Photos\\Schotland 2010"], memory.SourceFolders);
-    }
-
-    [Fact]
-    public void Adding_a_source_folder_that_exists_creates_a_memory_not_yet_indexed()
-    {
-        Directory.CreateDirectory(_root);
-        var folder = Path.Combine(_root, "Schotland 2010");
-        Directory.CreateDirectory(folder);
-        var config = new IndexerConfig();
-
-        config.AddSourceFolder(folder);
-
-        Assert.Contains(folder, config.SourceFolders);
-        var memory = Assert.Single(config.Memories);
-        Assert.Equal("Schotland 2010", memory.Name);
-        Assert.True(memory.NeedsReindex);
-        Assert.Null(memory.IndexedAt);
-        Assert.Null(config.FindIndexed(folder));
-    }
-
-    [Fact]
-    public void Adding_a_source_folder_that_does_not_exist_throws_a_clear_error()
-    {
-        var config = new IndexerConfig();
-        var missing = Path.Combine(_root, "Does Not Exist");
-
-        var ex = Assert.Throws<DirectoryNotFoundException>(() => config.AddSourceFolder(missing));
-        Assert.Contains(missing, ex.Message);
-        Assert.Empty(config.Memories);
-    }
-
-    [Fact]
-    public void Adding_the_same_source_folder_twice_is_a_no_op()
-    {
-        Directory.CreateDirectory(_root);
-        var config = new IndexerConfig();
-
-        config.AddSourceFolder(_root);
-        config.AddSourceFolder(_root);
-
-        Assert.Single(config.Memories);
-    }
-
-    [Fact]
-    public void Removing_a_source_folder_drops_it_even_if_it_no_longer_exists_on_disk()
-    {
-        var config = new IndexerConfig();
-        config.RecordIndexed("C:\\Gone", "gone", "Gone", "Ergens", Day);
-
-        config.RemoveSourceFolder("C:\\Gone");
-
-        Assert.Empty(config.Memories);
-    }
-
-    [Fact]
-    public void Recording_an_indexed_folder_makes_it_findable()
-    {
-        var config = new IndexerConfig();
-
-        config.RecordIndexed("C:\\Photos\\Schotland 2010", "schotland-2010", "Schotland 2010", "Schotland", Day);
-
-        var indexed = config.FindIndexed("C:\\Photos\\Schotland 2010");
-        Assert.NotNull(indexed);
-        Assert.Equal("schotland-2010", indexed!.MemoryId);
-        Assert.Equal("Schotland 2010", indexed.Name);
-        Assert.Equal("Schotland", indexed.DestinationName);
-        Assert.Equal(Day, indexed.DefaultDate);
-        Assert.False(indexed.NeedsReindex);
-        Assert.NotNull(indexed.IndexedAt);
-    }
-
-    [Fact]
-    public void Indexing_a_folder_that_was_just_added_completes_its_memory_instead_of_adding_another()
-    {
-        Directory.CreateDirectory(_root);
-        var config = new IndexerConfig();
-        config.AddSourceFolder(_root);
-
-        config.RecordIndexed(_root, "schotland-2010", "Schotland 2010", "Schotland", Day);
-
-        var memory = Assert.Single(config.Memories);
-        Assert.Equal("schotland-2010", memory.MemoryId);
-        Assert.False(memory.NeedsReindex);
-        Assert.NotNull(config.FindIndexed(_root));
-    }
-
-    [Fact]
-    public void Renaming_an_indexed_folder_changes_only_its_memory_name()
-    {
-        var config = new IndexerConfig();
-        config.RecordIndexed("C:\\Photos\\Noorwegen 2014", "noorwegen-2010", "Noorwegen 2010", "Oslo", Day);
-
-        config.UpdateIndexedMemoryName("C:\\Photos\\Noorwegen 2014", "Noorwegen 2014");
-
-        var indexed = Assert.Single(config.Memories);
-        Assert.Equal("Noorwegen 2014", indexed.Name);
-        Assert.Equal("noorwegen-2010", indexed.MemoryId);
-        Assert.Equal("Oslo", indexed.DestinationName);
-    }
-
-    [Fact]
-    public void Changing_the_destination_keeps_the_scan_time()
-    {
-        var config = new IndexerConfig();
-        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", "X", Day);
-        var scanned = config.FindIndexed("C:\\Photos\\X")!.IndexedAt;
-
-        config.UpdateIndexedDestinationName("C:\\Photos\\X", "Y");
-
-        var indexed = config.FindIndexed("C:\\Photos\\X")!;
-        Assert.Equal("Y", indexed.DestinationName);
-        Assert.Equal(scanned, indexed.IndexedAt);
-    }
-
-    [Fact]
-    public void Recording_an_indexed_folder_twice_replaces_the_previous_record()
-    {
-        var config = new IndexerConfig();
-        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", "X", Day);
-
-        config.RecordIndexed("C:\\Photos\\X", "x-2011", "X 2011", "X", Day);
-
-        var indexed = config.FindIndexed("C:\\Photos\\X");
-        Assert.Equal("x-2011", indexed!.MemoryId);
-        Assert.Single(config.Memories);
-    }
-
-    [Fact]
-    public void An_unindexed_folder_is_not_found()
-    {
-        var config = new IndexerConfig();
-
-        Assert.Null(config.FindIndexed("C:\\Photos\\Never Indexed"));
-    }
-
-    [Fact]
-    public void Removing_a_source_folder_also_forgets_its_memory()
-    {
-        var config = new IndexerConfig();
-        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", "X", Day);
-
-        config.RemoveSourceFolder("C:\\Photos\\X");
-
-        Assert.Null(config.FindIndexed("C:\\Photos\\X"));
-        Assert.Empty(config.SourceFolders);
     }
 
     [Fact]
@@ -202,16 +58,6 @@ public class IndexerConfigTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => new IndexerConfig().Save(path));
 
         Assert.Equal(v1, File.ReadAllText(path));
-    }
-
-    [Fact]
-    public void A_memory_without_a_destination_is_allowed()
-    {
-        var config = new IndexerConfig();
-
-        config.RecordIndexed("C:\\Photos\\X", "x-2010", "X 2010", destinationName: null, Day);
-
-        Assert.Null(config.FindIndexed("C:\\Photos\\X")!.DestinationName);
     }
 
     private string Folder(string name)
@@ -319,5 +165,76 @@ public class IndexerConfigTests : IDisposable
         Assert.False(zomer.NeedsReindex);
         Assert.Null(zomer.DestinationName);
         Assert.Equal(Day, config.Memories.Single(m => m.MemoryId == "zeeland").DefaultDate);
+    }
+
+    [Fact]
+    public void A_new_memory_has_a_name_and_a_first_folder_and_is_not_indexed_yet()
+    {
+        var folder = Folder("pip");
+        var config = new IndexerConfig();
+
+        var memory = config.AddMemory("Onze nieuwe hond", folder);
+
+        Assert.Equal("onze-nieuwe-hond", memory.MemoryId);
+        Assert.Equal([folder], memory.SourceFolders);
+        Assert.Null(memory.IndexedAt);
+        Assert.True(memory.NeedsReindex);
+        Assert.Null(memory.DestinationName);
+        Assert.Same(memory, Assert.Single(config.Memories));
+    }
+
+    [Fact]
+    public void A_new_memory_needs_a_name_a_folder_that_exists_and_an_unused_id()
+    {
+        var folder = Folder("pip");
+        var config = new IndexerConfig();
+        config.AddMemory("Onze nieuwe hond", folder);
+
+        Assert.Throws<ArgumentException>(() => config.AddMemory("  ", folder));
+        Assert.Throws<DirectoryNotFoundException>(() => config.AddMemory("Anders", Path.Combine(_root, "nope")));
+        var ex = Assert.Throws<InvalidOperationException>(() => config.AddMemory("Onze nieuwe hond", folder));
+        Assert.Contains("al in gebruik", ex.Message);
+    }
+
+    [Fact]
+    public void A_memorys_effective_date_is_the_override_or_else_the_default()
+    {
+        var config = ConfigWithMemory("kerst", Folder("a"));
+        var memory = config.Memories[0];
+
+        Assert.Equal(Day, memory.EffectiveDate);
+
+        config.SetDateOverride("kerst", new DateOnly(2023, 12, 24));
+        Assert.Equal(new DateOnly(2023, 12, 24), memory.EffectiveDate);
+        Assert.Equal(Day, memory.DefaultDate);
+
+        config.SetDateOverride("kerst", null);
+        Assert.Equal(Day, memory.EffectiveDate);
+    }
+
+    [Fact]
+    public void A_destination_can_be_set_and_cleared_on_a_memory()
+    {
+        var config = ConfigWithMemory("zeeland", Folder("a"));
+
+        config.SetDestinationName("zeeland", "Zeeland");
+        Assert.Equal("Zeeland", config.Memories[0].DestinationName);
+
+        config.SetDestinationName("zeeland", null);
+        Assert.Null(config.Memories[0].DestinationName);
+    }
+
+    [Fact]
+    public void Renaming_a_memory_keeps_its_id_and_removing_one_leaves_the_others()
+    {
+        var config = ConfigWithMemory("zeeland", Folder("a"));
+        config.Memories.Add(new MemoryConfig { MemoryId = "zomer", Name = "Zomer", DefaultDate = Day, SourceFolders = [Folder("b")] });
+
+        config.RenameMemory("zeeland", "Zeeland 2016");
+        config.RemoveMemory("zomer");
+
+        var memory = Assert.Single(config.Memories);
+        Assert.Equal("zeeland", memory.MemoryId);
+        Assert.Equal("Zeeland 2016", memory.Name);
     }
 }

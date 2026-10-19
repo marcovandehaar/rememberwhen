@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Indexer.Config;
 
@@ -35,6 +36,11 @@ public sealed class MemoryConfig
     public DateTimeOffset? IndexedAt { get; set; }
 
     public List<string> SourceFolders { get; set; } = [];
+
+    // What the catalogue's date is: the operator's override, else the date the
+    // last build gave the Memory.
+    [JsonIgnore]
+    public DateOnly EffectiveDate => DateOverride ?? DefaultDate;
 }
 
 public sealed class IndexerConfig
@@ -62,6 +68,7 @@ public sealed class IndexerConfig
     // running this isn't guaranteed to have it on PATH.
     public string FfmpegPath { get; set; } = "";
 
+    [JsonIgnore]
     public IEnumerable<string> SourceFolders => Memories.SelectMany(m => m.SourceFolders);
 
     public static IndexerConfig Load(string path)
@@ -85,33 +92,39 @@ public sealed class IndexerConfig
         File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOptions.Default));
     }
 
-    public MemoryConfig? FindByFolder(string sourceFolder) =>
-        Memories.FirstOrDefault(m => m.SourceFolders.Contains(sourceFolder));
-
-    // A folder added but not yet indexed is a Memory the catalogue doesn't
-    // know yet (IndexedAt null), named after the folder until the index form
-    // gives it its real name.
-    public void AddSourceFolder(string path)
+    // The "+ Nieuwe Memory" of the Indexer list: a name and a first Source
+    // Folder, not in the catalogue until its first index.
+    public MemoryConfig AddMemory(string name, string firstSourceFolder)
     {
-        if (!Directory.Exists(path))
-            throw new DirectoryNotFoundException($"Source Folder bestaat niet: {path}");
+        name = name.Trim();
+        if (name.Length == 0) throw new ArgumentException("Vul een Memory-naam in.", nameof(name));
+        if (!Directory.Exists(firstSourceFolder))
+            throw new DirectoryNotFoundException($"Source Folder bestaat niet: {firstSourceFolder}");
 
-        if (FindByFolder(path) is not null) return;
+        var id = Slug.From(name);
+        if (FindById(id) is not null)
+            throw new InvalidOperationException($"'{name}' is al in gebruik voor een andere Memory. Kies een andere Memory-naam.");
 
-        var name = Path.GetFileName(path.TrimEnd('\\', '/'));
-        Memories.Add(new MemoryConfig
+        var memory = new MemoryConfig
         {
-            MemoryId = Slug.From(name),
+            MemoryId = id,
             Name = name,
             DefaultDate = DateOnly.FromDateTime(DateTime.Today),
             NeedsReindex = true,
-            SourceFolders = [path],
-        });
+            SourceFolders = [firstSourceFolder],
+        };
+        Memories.Add(memory);
+        return memory;
     }
 
-    // Drops every Memory built from this folder.
-    public void RemoveSourceFolder(string path) =>
-        Memories.RemoveAll(m => m.SourceFolders.Contains(path));
+    public void RemoveMemory(string memoryId) => Memories.RemoveAll(m => m.MemoryId == memoryId);
+
+    public void SetDateOverride(string memoryId, DateOnly? date) => GetById(memoryId).DateOverride = date;
+
+    public void SetDestinationName(string memoryId, string? destinationName) => GetById(memoryId).DestinationName = destinationName;
+
+    // Only the displayed name changes; the id stays (see CatalogStore.SetName).
+    public void RenameMemory(string memoryId, string name) => GetById(memoryId).Name = name;
 
     public MemoryConfig? FindById(string memoryId) =>
         Memories.FirstOrDefault(m => m.MemoryId == memoryId);
@@ -156,45 +169,5 @@ public sealed class IndexerConfig
         memory.DefaultDate = defaultDate;
         memory.NeedsReindex = false;
         memory.IndexedAt = DateTimeOffset.UtcNow;
-    }
-
-    // Only a Memory that has been indexed: a folder that was just added has
-    // nothing published to reindex or remove yet.
-    public MemoryConfig? FindIndexed(string sourceFolder) =>
-        Memories.FirstOrDefault(m => m.IndexedAt is not null && m.SourceFolders.Contains(sourceFolder));
-
-    public void RecordIndexed(string sourceFolder, string memoryId, string memoryName, string? destinationName, DateOnly defaultDate)
-    {
-        var memory = FindByFolder(sourceFolder);
-        if (memory is null)
-        {
-            memory = new MemoryConfig { MemoryId = memoryId, Name = memoryName, DefaultDate = defaultDate, SourceFolders = [sourceFolder] };
-            Memories.Add(memory);
-        }
-
-        memory.MemoryId = memoryId;
-        memory.Name = memoryName;
-        memory.DestinationName = destinationName;
-        memory.DefaultDate = defaultDate;
-        memory.NeedsReindex = false;
-        memory.IndexedAt = DateTimeOffset.UtcNow;
-    }
-
-    // Re-homing a Memory to a (possibly new) Destination changes this cached
-    // copy too — BuildFolderViews reads the sidebar/detail's destination
-    // name from here, not from catalog.json. Deliberately doesn't touch
-    // IndexedAt: that field means "photos last scanned", and picking a
-    // different Destination doesn't rescan anything.
-    public void UpdateIndexedDestinationName(string sourceFolder, string destinationName)
-    {
-        var indexed = FindIndexed(sourceFolder);
-        if (indexed is not null) indexed.DestinationName = destinationName;
-    }
-
-    // The Memory's id stays as it was (see CatalogStore.SetName).
-    public void UpdateIndexedMemoryName(string sourceFolder, string memoryName)
-    {
-        var indexed = FindIndexed(sourceFolder);
-        if (indexed is not null) indexed.Name = memoryName;
     }
 }

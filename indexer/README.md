@@ -8,13 +8,16 @@ Reads one Source Folder and publishes a `catalog.json` plus media derivatives, p
 dotnet run --project indexer
 ```
 
-Starts a local web server (default `http://localhost:5183`) and opens it in your default browser. The screen is built around three workflows:
+Starts a local web server (default `http://localhost:5183`) and opens it in your default browser. The screen is one list of **Memories** (a Trip is a Memory with a Destination) with the detail of the selected one next to it:
 
-- **Add a folder and index it.** Add a Source Folder — "Bladeren…" opens a picker over the Indexer's own filesystem (a plain browser page can't get a real path back from a native OS dialog, so this is the closest equivalent; typing the path directly still works too) — name the Memory and Destination, and index it. Progress and any notices stream live, and the result is a thumbnail review grid where a stray photo (the odd one that doesn't belong) can be removed with a click. That removal only affects the current result, though — a later reindex rereads the Source Folder from scratch and brings it back, so a permanent fix means removing the file from the folder itself.
-- **Reindex an existing folder.** One click, reusing the Memory/Destination name from the first run — no retyping.
-- **Rename a Memory.** "Naam wijzigen" fixes a mistyped name (a wrong year, say) in place and instantly: only the displayed name changes, and only `catalog.json` needs publishing. Nothing is rescanned, so removed photos, covers and rotations stay as they are. The Memory's internal id and its media filenames keep the old name (nobody sees them); a later reindex under the new name re-keys them on its own.
-- **Unreadable files.** A file that can't be read (a share that drops a read, or a corrupt photo) gets three attempts, then is skipped and named in the run log; the rest of the folder still indexes.
-- **Remove an indexed folder.** Drops it from the list and deletes its published photos.
+- **The list** groups Memories by the year of their date, newest first, with Memories not indexed yet in their own group on top. A 📍 marks a Trip and an orange dot means "needs reindex". The filter above it shows Alles / Trips / Geen Trip with their counts.
+- **+ Nieuwe Memory** takes a name and a first Source Folder ("Bladeren…" opens a picker over the Indexer's own filesystem, since a plain browser page can't get a real path back from a native OS dialog; typing the path works too), then **Indexeren** builds it and a thumbnail review grid appears.
+- **Soort** — a Trip has a Destination ("Destination wijzigen…", or "Maak er een Trip van…" for a Memory that has none; "Geen Trip meer" removes it). Applied at once to `catalog.json` with a Gazetteer lookup, no reindex; the globe picks it up after the next publish.
+- **Datum** — the effective date, with "(standaard …)" when overridden. "Wijzigen…" sets an override (empty = back to the date of the earliest photo). Applied at once; the override lives in `config.json`, the catalogue only holds the effective date.
+- **Source Folders** — one row each. A Memory can draw on several, and one folder may feed several Memories ("ook in N andere"). Adding or removing one only marks the Memory "herindexeren nodig"; the last folder can't be removed.
+- **Herindexeren** rebuilds the Memory from all its folders (a confirmation first, since photos removed from the result come back). **Naam wijzigen** fixes a mistyped name in place and instantly; **Verwijderen** drops the Memory and its published photos.
+- **Unreadable files.** A file that can't be read (a share that drops a read, or a corrupt photo) gets three attempts, then is skipped and named in the run log; the rest still indexes.
+- A photo removed in the review grid only affects the current result — a later reindex rereads the Source Folders and brings it back.
 
 The Gazetteer, output location, Curatie- en logs-locatie, and a Source Folders-basismap live behind the settings sheet (gear icon), since they're setup, not part of the daily flow. Setting the basismap to a folder all trips live under — a mounted NAS share, say — points "Bladeren…" there directly instead of the drive list, and it can't wander above it. The Indexer only ever sees the filesystem of the machine it's running on, so this only works when that folder is actually reachable from there (a mapped network drive or UNC path with Windows already holding the credentials — nothing this app manages itself).
 

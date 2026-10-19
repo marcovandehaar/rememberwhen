@@ -136,6 +136,39 @@ public static class CatalogStore
         return Replace(catalog, updatedMemory);
     }
 
+    // Not a Trip any more: the globe stops showing it after the next publish,
+    // with no rescan (#65).
+    public static RwCatalog ClearDestination(RwCatalog catalog, string memoryId)
+    {
+        var memory = catalog.Memories.First(m => m.Id == memoryId);
+        return Replace(catalog, new RwMemory
+        {
+            Id = memory.Id,
+            Name = memory.Name,
+            Destination = null,
+            Date = memory.Date,
+            CoverImage = memory.CoverImage,
+            CoverPhoto = memory.CoverPhoto,
+            Chapters = memory.Chapters,
+        });
+    }
+
+    // The effective date: the operator's override, or the Memory's default.
+    public static RwCatalog SetDate(RwCatalog catalog, string memoryId, DateOnly date)
+    {
+        var memory = catalog.Memories.First(m => m.Id == memoryId);
+        return Replace(catalog, new RwMemory
+        {
+            Id = memory.Id,
+            Name = memory.Name,
+            Destination = memory.Destination,
+            Date = date,
+            CoverImage = memory.CoverImage,
+            CoverPhoto = memory.CoverPhoto,
+            Chapters = memory.Chapters,
+        });
+    }
+
     // A mistyped name (the year, say) is fixed without a rescan. Only the
     // displayed name changes: the Memory's id and its media filenames are
     // internal (nobody sees them), and renaming hundreds of files on a NAS

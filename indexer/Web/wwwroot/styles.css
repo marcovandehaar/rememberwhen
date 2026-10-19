@@ -102,20 +102,6 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
   color: var(--text-dim);
 }
 
-.add-folder-form { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; }
-.add-folder-form #browse-folder-button { width: 100%; }
-.add-folder-form input {
-  width: 100%;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  font-size: 12.5px;
-  color: var(--text-dim);
-}
-.add-folder-form input:focus { border-color: var(--accent); color: var(--text); }
-.add-folder-form .error { margin: 0; }
-
 .folder-filter {
   margin: 0 12px 10px;
   width: calc(100% - 24px);
@@ -504,3 +490,26 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 .migration-banner .migration-text { flex: 1; }
 .migration-banner .migration-text p { margin: 0 0 4px; }
 .migration-banner .migration-text ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* ---- Memories list (#65) ---- */
+.kind-filter { display: flex; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.kind-filter button { flex: 1; border: 0; background: var(--panel); padding: 5px 4px; font-size: 12.5px; cursor: pointer; color: var(--text-dim); }
+.kind-filter button + button { border-left: 1px solid var(--border); }
+.kind-filter button.on { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+
+.year-head { padding: 10px 16px 4px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.folder-item .badges { display: flex; align-items: center; gap: 6px; flex: none; }
+.pin-badge { font-size: 12px; }
+.stale-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.stale-pill { display: inline-block; vertical-align: middle; margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--warn); background: var(--warn-dim); border-radius: 99px; padding: 1px 10px; }
+
+.mem-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+.mem-field > label { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.mem-folders { list-style: none; margin: 4px 0; padding: 0; font-size: 13px; }
+.mem-folders li { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-family: "SF Mono", Menlo, Consolas, monospace; }
+.mem-folders .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-folders .shared { font-family: inherit; font-size: 11px; font-style: normal; color: var(--text-dim); }
+.mem-folders .shared.warn, .mem-folders li.missing .path { color: var(--warn); }
+.mem-folders button:disabled { opacity: 0.35; cursor: default; }
+.dim { color: var(--text-dim); }
+.override { color: var(--accent); }

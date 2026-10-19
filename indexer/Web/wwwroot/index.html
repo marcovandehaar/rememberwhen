@@ -58,25 +58,19 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebar-head">
-        <span>Mappen</span>
-        <button type="button" class="icon-button subtle" id="add-folder-button" title="Map toevoegen" aria-label="Map toevoegen">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 5h2v14h-2z"/><path d="M5 11h14v2H5z"/></svg>
-        </button>
+        <span>Memories</span>
+        <button type="button" class="button small" id="add-memory-button">+ Nieuwe Memory</button>
       </div>
-      <form id="add-folder-form" class="add-folder-form" hidden>
-        <button type="button" class="button small" id="browse-folder-button">Bladeren…</button>
-        <input type="text" id="add-folder-path" placeholder="of typ het pad…" autocomplete="off" />
-        <p class="error" id="add-folder-error" hidden></p>
-      </form>
-      <input type="text" id="folder-filter" class="folder-filter" placeholder="Zoeken op naam of locatie…" autocomplete="off" />
+      <div class="kind-filter" id="kind-filter" role="group" aria-label="Soort"></div>
+      <input type="text" id="folder-filter" class="folder-filter" placeholder="Zoeken op naam of Destination…" autocomplete="off" />
       <ul class="folder-list" id="folder-list"></ul>
       <p class="empty-state" id="folder-filter-empty" hidden>Niets gevonden.</p>
-      <p class="empty-state" id="folder-list-empty" hidden>Nog geen mappen toegevoegd.</p>
+      <p class="empty-state" id="folder-list-empty" hidden>Nog geen Memories.</p>
     </aside>
 
     <main class="detail" id="detail">
       <div class="empty-state centered" id="detail-empty">
-        <p>Selecteer een map, of voeg er een toe.</p>
+        <p>Selecteer een Memory, of maak er een.</p>
       </div>
     </main>
   </div>

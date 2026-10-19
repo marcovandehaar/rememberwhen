@@ -334,6 +334,29 @@ public class CatalogStoreTests : IDisposable
         ShotDuration = 4,
     };
 
+    [Fact]
+    public void Clearing_the_destination_makes_a_memory_not_a_trip_and_leaves_the_rest_alone()
+    {
+        var catalog = new RwCatalog { Memories = [Memory("a", coverPhoto: "media/a-cover.jpg"), Memory("b")] };
+
+        var cleared = CatalogStore.ClearDestination(catalog, "a");
+
+        Assert.Null(cleared.Memories.Single(m => m.Id == "a").Destination);
+        Assert.Equal("media/a-cover.jpg", cleared.Memories.Single(m => m.Id == "a").CoverPhoto);
+        Assert.NotNull(cleared.Memories.Single(m => m.Id == "b").Destination);
+    }
+
+    [Fact]
+    public void Setting_the_date_changes_only_that_memorys_date()
+    {
+        var catalog = new RwCatalog { Memories = [Memory("a"), Memory("b")] };
+
+        var updated = CatalogStore.SetDate(catalog, "a", new DateOnly(2023, 12, 24));
+
+        Assert.Equal(new DateOnly(2023, 12, 24), updated.Memories.Single(m => m.Id == "a").Date);
+        Assert.Equal(new DateOnly(2016, 7, 1), updated.Memories.Single(m => m.Id == "b").Date);
+    }
+
     private static RwMemory Memory(string id, string? name = null, List<RwChapter>? chapters = null, string? coverImage = null, string? coverPhoto = null) => new()
     {
         Id = id,
