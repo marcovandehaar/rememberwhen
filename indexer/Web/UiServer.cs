@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text.Json;
 using Indexer.Catalog;
 using Indexer.Config;
+using Indexer.Curation;
 using Indexer.Media;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -229,6 +230,9 @@ public static class UiServer
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
             var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
             var ffmpegPath = string.IsNullOrWhiteSpace(config.FfmpegPath) ? null : config.FfmpegPath;
+
+            // A reindex under a new name re-keys the Memory's id: its curation (the edits) moves with it.
+            if (existing is not null) CurationFile.Rekey(curationFolder, existing.MemoryId, newMemoryId);
 
             var run = runs.Start(state =>
             {
@@ -477,6 +481,9 @@ public static class UiServer
                 CatalogStore.Save(result.Catalog, catalogPath);
                 CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
 
+                // Also remember it by source file, so a reindex keeps it removed (#66).
+                ItemEdits.TryRecord(ResolveRelativeToConfig(configPath, config.CurationFolder), memoryId, itemId, (curation, source) => curation.RemoveFile(source));
+
                 var pendingPublishPath = PendingPublishPath(configPath);
                 PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), "catalog.json"));
 
@@ -518,6 +525,7 @@ public static class UiServer
                 var oldCoverPhotoPath = memory.CoverPhoto is null ? null : Path.Combine(outputFolder, memory.CoverPhoto);
                 var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}", $"media/{photoFileName}");
                 CatalogStore.Save(updated, catalogPath);
+                ItemEdits.TryRecord(ResolveRelativeToConfig(configPath, config.CurationFolder), memory.Id, item.Id, (curation, source) => curation.SetCover(source));
 
                 var pendingPublishPath = PendingPublishPath(configPath);
                 var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), $"media/{thumbFileName}");
@@ -564,6 +572,7 @@ public static class UiServer
                 var storyRect = StoryRectFormula.Compute(width, height, itemIndex);
                 var updated = CatalogStore.SetStoryRect(catalog, memory.Id, item.Id, storyRect);
                 CatalogStore.Save(updated, catalogPath);
+                ItemEdits.TryRecord(ResolveRelativeToConfig(configPath, config.CurationFolder), memory.Id, item.Id, (curation, source) => curation.Rotate(source));
 
                 var pendingPublishPath = PendingPublishPath(configPath);
                 var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), item.MediaRef);
@@ -1000,7 +1009,9 @@ public static class UiServer
             catalog = CatalogStore.Load(Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json"));
         }
 
-        return MemoryViews.Build(config, catalog, Directory.Exists, VersionedMediaUrl);
+        var curationFolder = ResolveRelativeToConfig(configPath, config.CurationFolder);
+        return MemoryViews.Build(config, catalog, Directory.Exists, VersionedMediaUrl,
+            memoryId => File.Exists(ItemMap.PathFor(curationFolder, memoryId)));
     }
 
     // catalog.json changed: it goes out with the next publish.

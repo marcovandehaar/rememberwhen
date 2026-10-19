@@ -447,7 +447,7 @@ function renderMemoryDetail(detail, m) {
       </details>
     ` : ''}
     ${m.neverIndexed ? '' : `
-      <p class="media-caption">Een foto hier verwijderen past alleen dit resultaat aan — bij herindexeren verschijnen alle foto's uit de mappen weer.</p>
+      <p class="media-caption">Nog niet duurzaam: herindexeer deze Memory eerst. Tot dan passen verwijderen, een andere cover en roteren alleen dit resultaat aan.</p>
       <div class="media-grid" id="media-grid"></div>
       <p class="error" id="media-item-error" style="max-width:480px" hidden></p>
     `}

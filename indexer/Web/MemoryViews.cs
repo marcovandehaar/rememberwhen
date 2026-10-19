@@ -23,12 +23,15 @@ public sealed record MemoryView(
     List<MemoryFolderView> Folders,
     DateTimeOffset? IndexedAt,
     string? CoverUrl,
-    List<MediaItemView> MediaItems);
+    List<MediaItemView> MediaItems,
+    // The photo edits (remove, cover, rotate) outlive a reindex only when the Memory has an item map,
+    // which a build writes: a migrated Memory not reindexed since has none (#66).
+    bool EditsDurable);
 
 public static class MemoryViews
 {
     /// <summary>Not-yet-indexed Memories first (they need attention), then newest by effective date.</summary>
-    public static List<MemoryView> Build(IndexerConfig config, RwCatalog catalog, Func<string, bool> folderExists, Func<string, string> mediaUrl)
+    public static List<MemoryView> Build(IndexerConfig config, RwCatalog catalog, Func<string, bool> folderExists, Func<string, string> mediaUrl, Func<string, bool> hasItemMap)
     {
         var views = config.Memories.Select(memory =>
         {
@@ -54,7 +57,8 @@ public static class MemoryViews
                     path, folderExists(path), config.Memories.Count(other => other != memory && other.SourceFolders.Contains(path))))],
                 memory.IndexedAt,
                 published is null ? null : mediaUrl(published.CoverImage),
-                items);
+                items,
+                hasItemMap(memory.MemoryId));
         });
 
         return [.. views.OrderByDescending(v => v.NeverIndexed).ThenByDescending(v => v.Date).ThenBy(v => v.Name)];

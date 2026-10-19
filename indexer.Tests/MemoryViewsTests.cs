@@ -20,7 +20,7 @@ public class MemoryViewsTests
     };
 
     private static List<MemoryView> Build(IndexerConfig config, RwCatalog? catalog = null) =>
-        MemoryViews.Build(config, catalog ?? new RwCatalog(), _ => true, path => $"/{path}");
+        MemoryViews.Build(config, catalog ?? new RwCatalog(), _ => true, path => $"/{path}", _ => true);
 
     [Fact]
     public void A_trip_is_told_apart_from_a_memory_that_is_not_one_by_its_destination()
@@ -92,7 +92,7 @@ public class MemoryViewsTests
         memory.NeedsReindex = true;
         var config = new IndexerConfig { Memories = [memory] };
 
-        var view = MemoryViews.Build(config, new RwCatalog(), _ => false, p => p).Single();
+        var view = MemoryViews.Build(config, new RwCatalog(), _ => false, p => p, _ => true).Single();
 
         Assert.True(view.NeedsReindex);
         Assert.False(view.Folders.Single().Exists);
@@ -112,5 +112,16 @@ public class MemoryViewsTests
 
         Assert.Equal(new Coordinate(51.5, 3.8), view.DestinationCoordinate);
         Assert.StartsWith("/media/zeeland-thumb.jpg", view.CoverUrl);
+    }
+
+    [Fact]
+    public void A_memory_without_an_item_map_says_its_photo_edits_are_not_durable_yet()
+    {
+        var config = new IndexerConfig { Memories = [Indexed("a", new DateOnly(2024, 7, 1)), Indexed("b", new DateOnly(2024, 7, 2))] };
+
+        var views = MemoryViews.Build(config, new RwCatalog(), _ => true, p => p, id => id == "b");
+
+        Assert.False(views.Single(v => v.MemoryId == "a").EditsDurable);
+        Assert.True(views.Single(v => v.MemoryId == "b").EditsDurable);
     }
 }

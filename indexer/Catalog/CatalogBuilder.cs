@@ -71,6 +71,24 @@ public static class CatalogBuilder
         if (files.Count == 0)
             throw new InvalidOperationException($"Geen ondersteunde media gevonden in {where}.");
 
+        // The operator's edits (#66): removed photos, the chosen cover and
+        // rotations, keyed by source file so they survive a reindex and the
+        // ids shifting when a folder is added. An edit whose file has
+        // vanished is dropped; one for a file still there is reapplied.
+        var curationPath = CurationFile.PathFor(curationFolder, memoryId);
+        var curation = CurationFile.Load(curationPath);
+        var inPool = files.Select(f => f.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var droppedEdits = curation.DropMissing(inPool.Contains);
+        if (droppedEdits > 0) log.WriteLine($"{droppedEdits} bewerking(en) van bestanden die niet meer bestaan zijn vergeten.");
+        var skippedByOperator = files.Where(f => curation.RemovedFiles.Contains(f.FullPath)).ToList();
+        if (skippedByOperator.Count > 0)
+        {
+            files = [.. files.Except(skippedByOperator)];
+            log.WriteLine($"{skippedByOperator.Count} bestand(en) overgeslagen omdat ze eerder verwijderd zijn.");
+            if (files.Count == 0)
+                throw new InvalidOperationException($"Alle bestanden in {where} zijn eerder verwijderd uit deze Memory.");
+        }
+
         // Cover = the earliest Media Item that's a photo (CONTEXT.md: Memory
         // calls it "the photo shown on its globe pin" — a video can't be
         // one). Cheap to know from the extension alone, so — like the
@@ -118,22 +136,23 @@ public static class CatalogBuilder
             .ToList());
 
         foreach (var anomaly in detection.Anomalies) log.WriteLine(anomaly.Message);
-        if (detection.Anomalies.Count > 0)
-        {
-            // Recomputed fresh every run rather than loaded-then-merged: no
-            // operator override exists yet to preserve (#34). Once one does,
-            // an operator's hand-edited Handling here must survive a re-run.
-            var curation = CurationFile.CreateEmpty();
-            foreach (var anomaly in detection.Anomalies)
-                curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());
 
-            // Not something the catalogue depends on — an unwritable
-            // Curation-folder must not sink a run whose anomalies are
-            // otherwise handled automatically and non-blockingly (see the
-            // file header above).
+        // Anomalies are recomputed fresh every run; the operator's edits in
+        // the same file are kept (what was dropped above stays dropped).
+        curation.Anomalies.Clear();
+        foreach (var anomaly in detection.Anomalies)
+            curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());
+
+        // Not something the catalogue depends on — an unwritable
+        // Curation-folder must not sink a run whose anomalies are
+        // otherwise handled automatically and non-blockingly (see the
+        // file header above).
+        if (!curation.IsEmpty || File.Exists(curationPath))
+        {
             try
             {
-                curation.Save(CurationFile.PathFor(curationFolder, memoryId));
+                Directory.CreateDirectory(curationFolder);
+                curation.Save(curationPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -151,7 +170,10 @@ public static class CatalogBuilder
 
         // Guaranteed to find one — the all-video check above already ruled
         // out the only way it couldn't.
-        var coverIndex = ordered.FindIndex(entry => entry.Kind == MediaKind.Photo);
+        var coverIndex = curation.CoverFile is { } chosenCover
+            ? ordered.FindIndex(entry => entry.Kind == MediaKind.Photo && string.Equals(entry.File.FullPath, chosenCover, StringComparison.OrdinalIgnoreCase))
+            : -1;
+        if (coverIndex < 0) coverIndex = ordered.FindIndex(entry => entry.Kind == MediaKind.Photo);
 
         var chapters = new List<RwChapter>();
         var chapterMediaItems = new List<RwMediaItem>();
@@ -181,6 +203,7 @@ public static class CatalogBuilder
         // nothing. Cancelling a first-time index, where every file here is
         // new, cleans up everything it wrote.
         var newlyWrittenFiles = new List<string>();
+        var itemSources = new Dictionary<string, string>();
         try
         {
             for (var i = 0; i < ordered.Count; i++)
@@ -206,6 +229,13 @@ public static class CatalogBuilder
                         var published = kind == MediaKind.Video
                             ? PublishVideo(file, metadata, id, mediaDir, ffmpegPath, log)
                             : PublishPhoto(file, metadata, id, mediaDir);
+
+                        // A rotation the operator chose is applied to the fresh
+                        // derivative, never accumulated on the previous one.
+                        var storyPath = Path.Combine(outputFolder, published.MediaRef);
+                        var rotated = kind == MediaKind.Photo && curation.Rotations.TryGetValue(file.FullPath, out var degrees)
+                            ? DerivativeGenerator.RotatePhoto(storyPath, degrees)
+                            : ((int Width, int Height)?)null;
                         string? thumb = null, photo = null;
                         var thumbIsNew = false;
                         var photoIsNew = false;
@@ -213,15 +243,16 @@ public static class CatalogBuilder
                         {
                             var thumbPath = Path.Combine(mediaDir, $"{id}-thumb.jpg");
                             thumbIsNew = !File.Exists(thumbPath);
-                            DerivativeGenerator.GeneratePinThumbnail(file.FullPath, thumbPath);
+                            var coverSource = rotated is null ? file.FullPath : storyPath;
+                            DerivativeGenerator.GeneratePinThumbnail(coverSource, thumbPath);
                             thumb = thumbPath;
 
                             var photoPath = Path.Combine(mediaDir, $"{id}-cover.jpg");
                             photoIsNew = !File.Exists(photoPath);
-                            DerivativeGenerator.GenerateCoverPhoto(file.FullPath, photoPath);
+                            DerivativeGenerator.GenerateCoverPhoto(coverSource, photoPath);
                             photo = photoPath;
                         }
-                        return (published, thumb, thumbIsNew, photo, photoIsNew);
+                        return (published, thumb, thumbIsNew, photo, photoIsNew, rotated);
                     }, file.RelativePath, delay, log, cancellationToken, out var result))
                 {
                     skipped.Add(file.RelativePath);
@@ -248,14 +279,26 @@ public static class CatalogBuilder
                     MediaRef = mediaRef,
                     Type = kind,
                     CapturedAt = metadata.CapturedAt,
-                    StoryRect = StoryRectFormula.Compute(metadata.Width, metadata.Height, i),
+                    StoryRect = StoryRectFormula.Compute(result.rotated?.Width ?? metadata.Width, result.rotated?.Height ?? metadata.Height, i),
                     ShotDuration = shotDuration,
                 });
+                itemSources[id] = file.FullPath;
                 // A Chapter has a location as soon as any of its Media Items
                 // carries GPS (CONTEXT.md: Chapter) — first one found wins.
                 chapterLocation ??= metadata.Gps;
             }
             FlushChapter();
+
+            // Rewritten on every build: the private link from a Media Item id
+            // back to its source file (ADR 0008), never part of catalog.json.
+            try
+            {
+                ItemMap.Save(ItemMap.PathFor(curationFolder, memoryId), itemSources);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                log.WriteLine($"Kon de item-map niet wegschrijven naar {curationFolder}: {ex.Message}");
+            }
         }
         catch (OperationCanceledException)
         {

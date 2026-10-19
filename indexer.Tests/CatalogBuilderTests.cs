@@ -543,4 +543,172 @@ public class CatalogBuilderTests : IDisposable
         Assert.Null(catalog.Memories[0].Destination);
         Assert.Equal(new DateOnly(2016, 7, 1), catalog.Memories[0].Date);
     }
+
+    // ---- the operator's edits survive a build (#66)
+
+    private string CurationPath(string memoryName) => CurationFile.PathFor(_curationDir, Slug.From(memoryName));
+
+    private void Curated(string memoryName, Action<CurationFile> edits)
+    {
+        Directory.CreateDirectory(_curationDir);
+        var curation = CurationFile.CreateEmpty();
+        edits(curation);
+        curation.Save(CurationPath(memoryName));
+    }
+
+    private RwCatalog BuildZeeland(params string[] folders) =>
+        CatalogBuilder.Build(folders.Length == 0 ? [_sourceDir] : folders, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+    private static List<RwMediaItem> Items(RwCatalog catalog) => catalog.Memories[0].Chapters.SelectMany(c => c.MediaItems).ToList();
+
+    [Fact]
+    public void A_removed_photo_stays_out_of_every_later_build()
+    {
+        var a = Path.Combine(_sourceDir, "a.jpg");
+        TestImages.WriteJpeg(a, 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+        Curated("Zeeland 2016", c => c.RemoveFile(a));
+
+        var items = Items(BuildZeeland());
+
+        Assert.EndsWith("-b", Assert.Single(items).Id);
+    }
+
+    [Fact]
+    public void The_chosen_cover_stays_the_cover_even_when_an_earlier_photo_arrives()
+    {
+        var b = Path.Combine(_sourceDir, "b.jpg");
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(b, 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+        Curated("Zeeland 2016", c => c.SetCover(b));
+
+        var memory = BuildZeeland().Memories[0];
+
+        Assert.EndsWith("-b-thumb.jpg", memory.CoverImage);
+        Assert.EndsWith("-b-cover.jpg", memory.CoverPhoto);
+        Assert.True(File.Exists(Path.Combine(_outputDir, memory.CoverImage)));
+    }
+
+    [Fact]
+    public void When_the_chosen_cover_is_gone_the_earliest_remaining_photo_is_the_cover()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+        Curated("Zeeland 2016", c => c.SetCover(Path.Combine(_sourceDir, "weg.jpg")));
+
+        var memory = BuildZeeland().Memories[0];
+
+        Assert.EndsWith("-a-thumb.jpg", memory.CoverImage);
+        Assert.Null(CurationFile.Load(CurationPath("Zeeland 2016")).CoverFile);
+    }
+
+    [Fact]
+    public void A_rotation_is_reapplied_to_the_photo()
+    {
+        var a = Path.Combine(_sourceDir, "a.jpg");
+        TestImages.WriteJpeg(a, 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+        Curated("Zeeland 2016", c => c.Rotate(a));
+
+        var items = Items(BuildZeeland());
+
+        var rotated = PhotoMetadataReader.Read(Path.Combine(_outputDir, items.Single(i => i.Id.EndsWith("-a")).MediaRef));
+        Assert.True(rotated.Height > rotated.Width, "a 90 degree turn makes the landscape photo a portrait");
+        var untouched = PhotoMetadataReader.Read(Path.Combine(_outputDir, items.Single(i => i.Id.EndsWith("-b")).MediaRef));
+        Assert.True(untouched.Width > untouched.Height);
+    }
+
+    [Fact]
+    public void A_rotation_does_not_pile_up_over_repeated_builds()
+    {
+        var a = Path.Combine(_sourceDir, "a.jpg");
+        TestImages.WriteJpeg(a, 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        Curated("Zeeland 2016", c => c.Rotate(a));
+
+        BuildZeeland();
+        var second = BuildZeeland();
+
+        var size = PhotoMetadataReader.Read(Path.Combine(_outputDir, Items(second)[0].MediaRef));
+        Assert.True(size.Height > size.Width);
+    }
+
+    [Fact]
+    public void Edits_to_a_file_that_has_vanished_do_not_break_the_build_and_are_dropped()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        var vanished = Path.Combine(_sourceDir, "verdwenen.jpg");
+        Curated("Zeeland 2016", c => { c.RemoveFile(vanished); c.Rotate(vanished); });
+
+        var items = Items(BuildZeeland());
+
+        Assert.Single(items);
+        var curation = CurationFile.Load(CurationPath("Zeeland 2016"));
+        Assert.Empty(curation.RemovedFiles);
+        Assert.Empty(curation.Rotations);
+    }
+
+    [Fact]
+    public void Every_build_writes_the_item_map_from_media_item_ids_to_source_files()
+    {
+        var a = Path.Combine(_sourceDir, "a.jpg");
+        var b = Path.Combine(_sourceDir, "b.jpg");
+        TestImages.WriteJpeg(a, 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        TestImages.WriteJpeg(b, 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+
+        var items = Items(BuildZeeland());
+
+        var map = ItemMap.Load(ItemMap.PathFor(_curationDir, "zeeland-2016"))!;
+        Assert.Equal(Path.GetFullPath(a), map[items.Single(i => i.Id.EndsWith("-a")).Id]);
+        Assert.Equal(Path.GetFullPath(b), map[items.Single(i => i.Id.EndsWith("-b")).Id]);
+    }
+
+    [Fact]
+    public void Edits_stay_attached_to_their_file_when_a_folder_is_added_and_the_ids_shift()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 10, 0, 0));
+        var earlier = MakeFolder("earlier");
+        TestImages.WriteJpeg(Path.Combine(earlier, "vroeg.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        Curated("Zeeland 2016", c => c.RemoveFile(Path.Combine(_sourceDir, "a.jpg")));
+
+        var items = Items(BuildZeeland(_sourceDir, earlier));
+
+        Assert.Equal(2, items.Count);
+        Assert.DoesNotContain(items, i => i.Id.EndsWith("-a"));
+        Assert.Contains(items, i => i.Id.EndsWith("-vroeg"));
+    }
+
+    [Fact]
+    public void The_anomalies_a_build_finds_and_the_operators_edits_live_in_the_same_curation_file()
+    {
+        var removed = Path.Combine(_sourceDir, "extra.jpg");
+        TestImages.WriteJpeg(removed, 800, 600, new DateTime(2010, 8, 3, 9, 0, 0), camera: "CANON EOS");
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony1.jpg"), 800, 600, new DateTime(2010, 8, 1, 9, 0, 0), camera: "SONY DSC-W70");
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "sony2.jpg"), 800, 600, new DateTime(2010, 8, 7, 9, 0, 0), camera: "SONY DSC-W70");
+        foreach (var name in new[] { "nikon1.jpg", "nikon2.jpg", "nikon3.jpg" })
+        {
+            var path = Path.Combine(_sourceDir, name);
+            TestImages.WriteJpeg(path, 800, 600, new DateTime(2010, 1, 2, 9, 0, 0), camera: "NIKON D50");
+            File.SetLastWriteTimeUtc(path, new DateTime(2010, 8, 6, 9, 0, 0, DateTimeKind.Utc));
+        }
+        Curated("Schotland 2010", c => c.RemoveFile(removed));
+
+        CatalogBuilder.Build(_sourceDir, "Schotland 2010", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+        var curation = CurationFile.Load(CurationPath("Schotland 2010"));
+        Assert.Contains("NIKON D50", curation.Anomalies.Keys);
+        Assert.Equal([removed], curation.RemovedFiles);
+    }
+
+    [Fact]
+    public void The_catalogue_never_contains_a_source_path()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+
+        var json = System.Text.Json.JsonSerializer.Serialize(BuildZeeland(), JsonOptions.Default);
+
+        // JSON escapes a backslash, so look for both spellings of the folder.
+        Assert.DoesNotContain(_sourceDir, json);
+        Assert.DoesNotContain(_sourceDir.Replace("\\", "\\\\"), json);
+    }
 }
