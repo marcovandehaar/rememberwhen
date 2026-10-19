@@ -277,91 +277,39 @@ document.getElementById('add-memory-button').addEventListener('click', openNewMe
 
 // A name plus a first Source Folder (the existing picker). The Memory sits
 // under "Nog niet geïndexeerd" until its first index.
-// Closing is animated like opening (the .closing class, then removed after its 120ms).
-function closeOverlay(overlay) {
-  overlay.classList.add('closing');
-  setTimeout(() => overlay.remove(), 120);
-}
-
-// The inline editors (name, Soort, Datum) open with a short slide-in and
-// leave with a short fade, instead of popping in and out.
-function openEditor(box, html) {
-  box.classList.remove('closing');
-  box.innerHTML = html;
-  box.classList.add('editor-box');
-}
-
-function closeEditor(box) {
-  box.classList.add('closing');
-  setTimeout(() => {
-    if (!box.classList.contains('closing')) return; // reopened meanwhile
-    box.classList.remove('closing');
-    box.innerHTML = '';
-  }, 120);
-}
-
 function openNewMemoryDialog() {
-  const dialog = el(`
-    <div class="sheet-overlay">
-      <div class="sheet" style="max-width:440px">
-        <div class="sheet-head">
-          <h2>Nieuwe Memory</h2>
-          <button type="button" class="icon-button subtle" id="new-memory-close" aria-label="Sluiten">${REMOVE_ICON}</button>
-        </div>
-        <div class="sheet-section" style="border-top:none">
-          <div class="field"><label for="new-memory-name">Naam</label><input type="text" id="new-memory-name" placeholder="Zeeland 2016" autocomplete="off" /></div>
-          <div class="field">
-            <label for="new-memory-path">Eerste Source Folder</label>
-            <div class="row" style="margin:0">
-              <button type="button" class="button small" id="new-memory-browse">Bladeren…</button>
-              <input type="text" id="new-memory-path" placeholder="of typ het pad…" autocomplete="off" />
-            </div>
-          </div>
-          <p class="error" id="new-memory-error" hidden></p>
-          <div class="row" style="justify-content:flex-end;margin-top:14px">
-            <button type="button" class="button ghost small" id="new-memory-cancel">Annuleren</button>
-            <button type="button" class="button small" id="new-memory-create">Aanmaken</button>
-          </div>
+  openSheet({
+    title: 'Nieuwe Memory',
+    doneLabel: 'Aanmaken',
+    body: `
+      <div class="group">
+        <label class="cell input-row"><span class="row-label">Naam</span><input type="text" id="new-memory-name" placeholder="Zeeland 2016" autocomplete="off" /></label>
+        <div class="cell input-row">
+          <span class="row-label">Bronmap</span>
+          <input type="text" id="new-memory-path" placeholder="Pad naar de map" autocomplete="off" />
+          <button type="button" class="link-button inline" id="new-memory-browse">Bladeren…</button>
         </div>
       </div>
-    </div>
-  `);
-  document.body.append(dialog);
-
-  const nameInput = dialog.querySelector('#new-memory-name');
-  const pathInput = dialog.querySelector('#new-memory-path');
-  const errorEl = dialog.querySelector('#new-memory-error');
-  const close = () => closeOverlay(dialog);
-  nameInput.focus();
-
-  dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
-  dialog.querySelector('#new-memory-close').addEventListener('click', close);
-  dialog.querySelector('#new-memory-cancel').addEventListener('click', close);
-  dialog.querySelector('#new-memory-browse').addEventListener('click', async () => {
-    const picked = await browseDialog();
-    if (picked) pathInput.value = picked;
-  });
-  dialog.querySelector('#new-memory-create').addEventListener('click', async () => {
-    errorEl.hidden = true;
-    const name = nameInput.value.trim();
-    const path = pathInput.value.trim();
-    if (!name || !path) {
-      errorEl.textContent = 'Vul een naam en een Source Folder in.';
-      errorEl.hidden = false;
-      return;
-    }
-    try {
+      <p class="group-foot">Je kunt later meer mappen toevoegen. De Memory staat in de lijst tot je hem indexeert.</p>
+    `,
+    onMount(sheet) {
+      sheet.content.querySelector('#new-memory-name').focus();
+      sheet.content.querySelector('#new-memory-browse').addEventListener('click', async () => {
+        const picked = await browseDialog();
+        if (picked) sheet.content.querySelector('#new-memory-path').value = picked;
+      });
+    },
+    async onDone(sheet) {
+      const name = sheet.content.querySelector('#new-memory-name').value.trim();
+      const path = sheet.content.querySelector('#new-memory-path').value.trim();
+      if (!name || !path) throw new Error('Vul een naam en een Source Folder in.');
       const created = await api('POST', '/api/memories', { name, path });
-      close();
       kindFilter = 'all';
       searchFilter = '';
       document.getElementById('folder-filter').value = '';
       selectedId = created.find((m) => m.name === name)?.memoryId ?? selectedId;
       await loadMemories();
-    } catch (err) {
-      errorEl.textContent = err.message;
-      errorEl.hidden = false;
-    }
+    },
   });
 }
 
@@ -380,65 +328,66 @@ function renderDetail() {
   else renderMemoryDetail(detail, memory);
 }
 
-const kindLine = (m) => (isTrip(m)
-  ? `Trip 📍 ${escapeHtml(m.destinationName)}`
-  : 'Memory, geen Trip: niet op de globe');
+/* ---- detail of one Memory (#65, redesigned): a title, one primary action, a
+   few inset rows that open small sheets, then the photos. */
 
-const dateLine = (m) => {
-  if (m.neverIndexed && !m.dateOverride) return '<span class="dim">— (na het eerste indexeren)</span>';
+const CHEVRON = '<svg class="chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MORE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+const PHOTO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10.5" r="1.6"/><path d="M4 17l5-4.5 4 3.5 3-2.5 4 3.5"/></svg>';
+
+function shortDate(iso) {
+  return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// "Trip · Zeeland" or "Memory"
+const kindValue = (m) => (isTrip(m) ? `Trip · ${escapeHtml(m.destinationName)}` : 'Memory');
+
+const dateValue = (m) => {
+  if (m.neverIndexed && !m.dateOverride) return '<span class="dim">Na het eerste indexeren</span>';
   const shown = formatDay(m.dateOverride ?? m.date);
-  if (m.dateOverride) {
-    const standard = m.defaultDate ? ` <span class="dim">(standaard ${formatDay(m.defaultDate)})</span>` : '';
-    return `${shown} <span class="override" title="Handmatig ingesteld">✎</span>${standard}`;
-  }
-  return `${shown} <span class="dim">(vroegste foto)</span>`;
+  return m.dateOverride ? `${shown} <span class="override" title="Handmatig ingesteld">✎</span>` : shown;
 };
+
+function foldersValue(m) {
+  const missing = m.folders.filter((f) => !f.exists).length;
+  const count = `${m.folders.length} ${m.folders.length === 1 ? 'map' : 'mappen'}`;
+  return missing > 0 ? `${count} <span class="warn">· ${missing} niet gevonden</span>` : count;
+}
 
 function renderMemoryDetail(detail, m) {
   const reindexError = attempts[m.memoryId]?.error;
   const reindexCancelled = !reindexError && attempts[m.memoryId]?.cancelled;
   const notices = lastNotices[m.memoryId] ?? [];
-  const onlyFolder = m.folders.length <= 1;
-  const stale = m.needsReindex
-    ? `<span class="stale-pill">${m.neverIndexed ? 'nog niet geïndexeerd' : 'herindexeren nodig'}</span>`
-    : '';
+
+  const sub = [
+    isTrip(m) ? `📍 ${escapeHtml(m.destinationName)}` : 'Memory',
+    m.neverIndexed ? 'nog niet geïndexeerd' : `${m.mediaItems.length} foto's · geïndexeerd ${shortDate(m.indexedAt)}`,
+  ].join(' · ');
 
   detail.innerHTML = `
-    <div class="detail-head">
-      <div>
-        <h2>${escapeHtml(m.name)} ${stale}</h2>
-        ${m.neverIndexed ? '' : `<div class="detail-sub">${m.mediaItems.length} foto's · geïndexeerd op ${formatDate(m.indexedAt)}</div>`}
+    <header class="mem-head">
+      <div class="mem-titles">
+        <h2>${escapeHtml(m.name)}</h2>
+        <p class="mem-sub">${sub}</p>
       </div>
-      <div class="detail-actions">
-        <button type="button" class="button ghost small" id="rename-button" title="Wijzigt de naam (bijv. een verkeerd jaar), zonder opnieuw te indexeren">Naam wijzigen</button>
-        <button type="button" class="button ${m.needsReindex ? '' : 'ghost'} small" id="reindex-button">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'}</button>
-        <button type="button" class="button danger small" id="remove-memory-button">Verwijderen</button>
+      <div class="mem-actions">
+        <button type="button" class="pill ${m.needsReindex ? 'primary' : 'secondary'}" id="reindex-button">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'}</button>
+        <div class="menu-anchor">
+          <button type="button" class="round-button" id="more-button" aria-label="Meer acties" aria-haspopup="menu">${MORE_ICON}</button>
+        </div>
       </div>
-    </div>
-    ${reindexError ? `<p class="error" style="max-width:480px">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'} mislukt: ${escapeHtml(reindexError)}</p>` : ''}
-    ${reindexCancelled ? `<p class="hint" style="max-width:480px">Indexeren geannuleerd; er is niets gepubliceerd of gewijzigd.</p>` : ''}
-    <div id="name-editor"></div>
+    </header>
 
-    <div class="mem-field">
-      <label>Soort</label>
-      <div>${kindLine(m)}
-        <button type="button" class="button ghost small" id="kind-button">${isTrip(m) ? 'Destination wijzigen…' : 'Maak er een Trip van…'}</button>
-      </div>
-      <div id="kind-editor"></div>
-    </div>
+    ${reindexError ? `<p class="callout error-callout">${m.neverIndexed ? 'Indexeren' : 'Herindexeren'} mislukt: ${escapeHtml(reindexError)}</p>` : ''}
+    ${reindexCancelled ? `<p class="callout">Indexeren geannuleerd; er is niets gepubliceerd of gewijzigd.</p>` : ''}
+    ${m.needsReindex && !m.neverIndexed ? `<p class="callout warn-callout">De mappen zijn gewijzigd. Herindexeer om de foto's bij te werken.</p>` : ''}
 
-    <div class="mem-field">
-      <label>Datum</label>
-      <div>${dateLine(m)} <button type="button" class="button ghost small" id="date-button">Wijzigen…</button></div>
-      <div id="date-editor"></div>
-    </div>
-
-    <div class="mem-field">
-      <label>Source Folders</label>
-      <ul class="mem-folders" id="mem-folders"></ul>
-      <div><button type="button" class="button ghost small" id="add-folder-to-memory-button">+ Map toevoegen…</button></div>
-      <p class="error" id="folder-error" style="max-width:480px" hidden></p>
-    </div>
+    <section class="group" aria-label="Eigenschappen">
+      <button type="button" class="cell" id="row-kind"><span class="row-label">Soort</span><span class="row-value">${kindValue(m)}</span>${CHEVRON}</button>
+      <button type="button" class="cell" id="row-date"><span class="row-label">Datum</span><span class="row-value">${dateValue(m)}</span>${CHEVRON}</button>
+      <button type="button" class="cell" id="row-folders"><span class="row-label">Bronmappen</span><span class="row-value">${foldersValue(m)}</span>${CHEVRON}</button>
+    </section>
+    <p class="group-foot">Soort en datum gelden direct. Wijzigingen aan de mappen worden pas verwerkt bij het herindexeren.</p>
 
     ${notices.length > 0 ? `
       <details class="notices">
@@ -446,35 +395,288 @@ function renderMemoryDetail(detail, m) {
         <ul>${notices.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
       </details>
     ` : ''}
-    ${m.neverIndexed ? '' : `
-      <p class="media-caption">Nog niet duurzaam: herindexeer deze Memory eerst. Tot dan passen verwijderen, een andere cover en roteren alleen dit resultaat aan.</p>
+
+    ${m.neverIndexed ? `
+      <div class="empty-photos">
+        ${PHOTO_ICON}
+        <p>Nog geen foto's</p>
+        <span>Indexeer deze Memory om de foto's te zien.</span>
+      </div>
+    ` : `
+      <div class="section-head"><h3>Foto's</h3><span class="dim">${m.mediaItems.length}</span></div>
       <div class="media-grid" id="media-grid"></div>
+      <p class="group-foot">${m.editsDurable
+        ? "Een foto verwijderen, een andere cover kiezen of roteren blijft ook na herindexeren bewaard."
+        : "Nog niet duurzaam: herindexeer deze Memory eerst. Tot dan passen verwijderen, een andere cover en roteren alleen dit resultaat aan."}</p>
       <p class="error" id="media-item-error" style="max-width:480px" hidden></p>
     `}
   `;
 
-  const folderList = document.getElementById('mem-folders');
-  for (const folder of m.folders) {
-    const row = el(`<li class="${folder.exists ? '' : 'missing'}"><span class="path"></span><em class="shared"></em><button type="button" class="icon-button subtle" aria-label="Map verwijderen">${REMOVE_ICON}</button></li>`);
-    row.querySelector('.path').textContent = folder.path;
-    row.querySelector('.path').title = folder.path;
-    if (!folder.exists) row.querySelector('.path').after(el('<em class="shared warn">niet gevonden</em>'));
-    row.querySelector('.shared').textContent = folder.alsoIn > 0 ? `ook in ${folder.alsoIn} andere` : '';
-    const remove = row.querySelector('button');
-    remove.disabled = onlyFolder;
-    remove.title = onlyFolder ? 'Er moet minstens één map overblijven' : 'Map uit deze Memory halen';
-    remove.addEventListener('click', () => removeFolderFromMemory(m, folder.path));
-    folderList.append(row);
-  }
-
   if (!m.neverIndexed) renderMediaGrid(m);
 
-  document.getElementById('rename-button').addEventListener('click', () => openNameEditor(m));
   document.getElementById('reindex-button').addEventListener('click', () => indexMemory(m));
-  document.getElementById('remove-memory-button').addEventListener('click', () => removeMemory(m));
-  document.getElementById('kind-button').addEventListener('click', () => openKindEditor(m));
-  document.getElementById('date-button').addEventListener('click', () => openDateEditor(m));
-  document.getElementById('add-folder-to-memory-button').addEventListener('click', () => addFolderToMemory(m));
+  document.getElementById('more-button').addEventListener('click', (e) => openMoreMenu(e.currentTarget, m));
+  document.getElementById('row-kind').addEventListener('click', () => openKindSheet(m));
+  document.getElementById('row-date').addEventListener('click', () => openDateSheet(m));
+  document.getElementById('row-folders').addEventListener('click', () => openFoldersSheet(m.memoryId));
+}
+
+/* ---- the "•••" menu: what is rarely needed lives here, not on the page */
+
+function openMoreMenu(button, m) {
+  const anchor = button.parentElement;
+  if (anchor.querySelector('.menu')) return closeMenu(anchor);
+
+  const menu = el(`
+    <div class="menu" role="menu">
+      <button type="button" role="menuitem" data-act="rename">Naam wijzigen…</button>
+      <button type="button" role="menuitem" class="destructive" data-act="remove">Verwijderen…</button>
+    </div>
+  `);
+  anchor.append(menu);
+  button.setAttribute('aria-expanded', 'true');
+
+  const outside = (e) => { if (!menu.contains(e.target) && e.target !== button) closeMenu(anchor); };
+  const escape = (e) => { if (e.key === 'Escape') closeMenu(anchor); };
+  menu._cleanup = () => {
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('keydown', escape);
+    button.removeAttribute('aria-expanded');
+  };
+  document.addEventListener('pointerdown', outside, true);
+  document.addEventListener('keydown', escape);
+
+  menu.querySelector('[data-act="rename"]').addEventListener('click', () => { closeMenu(anchor); openNameSheet(m); });
+  menu.querySelector('[data-act="remove"]').addEventListener('click', () => { closeMenu(anchor); removeMemory(m); });
+}
+
+function closeMenu(anchor) {
+  const menu = anchor.querySelector('.menu');
+  if (!menu || menu.classList.contains('closing')) return;
+  menu._cleanup?.();
+  menu.classList.add('closing');
+  setTimeout(() => menu.remove(), 110);
+}
+
+/* ---- sheets: small modal editors in the style of an iOS sheet */
+
+// Closing is animated like opening (the .closing class, then removed after its 120ms).
+function closeOverlay(overlay) {
+  overlay.classList.add('closing');
+  setTimeout(() => overlay.remove(), 120);
+}
+
+// Opens a sheet with a title bar (Annuleren / title / Gereed). `onDone` may
+// throw: its message shows in the sheet and the sheet stays open.
+function openSheet({ title, doneLabel = 'Gereed', cancelLabel = 'Annuleren', body, onMount, onDone }) {
+  const overlay = el(`
+    <div class="sheet-overlay">
+      <div class="sheet sheet-ios" role="dialog" aria-label="${escapeHtml(title)}">
+        <div class="sheet-bar">
+          <button type="button" class="bar-button" data-act="cancel">${cancelLabel}</button>
+          <h3>${escapeHtml(title)}</h3>
+          <button type="button" class="bar-button strong" data-act="done">${doneLabel}</button>
+        </div>
+        <div class="sheet-content">${body}<p class="error sheet-error" hidden></p></div>
+      </div>
+    </div>
+  `);
+  document.body.append(overlay);
+
+  const errorEl = overlay.querySelector('.sheet-error');
+  const done = overlay.querySelector('[data-act="done"]');
+  const cancel = overlay.querySelector('[data-act="cancel"]');
+  if (!cancelLabel) cancel.style.visibility = 'hidden';
+  const sheet = {
+    overlay,
+    content: overlay.querySelector('.sheet-content'),
+    close: () => closeOverlay(overlay),
+    error(message) { errorEl.textContent = message; errorEl.hidden = !message; },
+  };
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) sheet.close(); });
+  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') sheet.close(); });
+  cancel.addEventListener('click', sheet.close);
+  done.addEventListener('click', async () => {
+    sheet.error('');
+    done.disabled = true;
+    try {
+      if (onDone) await onDone(sheet);
+      sheet.close();
+    } catch (err) {
+      sheet.error(err.message);
+      done.disabled = false;
+    }
+  });
+  onMount?.(sheet);
+  return sheet;
+}
+
+/* Soort: Memory or Trip. Applied at once; a Trip is a Memory with a Destination. */
+function openKindSheet(m) {
+  let kind = isTrip(m) ? 'trip' : 'memory';
+  openSheet({
+    title: 'Soort',
+    body: `
+      <div class="segmented" id="kind-seg" role="tablist">
+        <button type="button" data-kind="memory">Memory</button>
+        <button type="button" data-kind="trip">Trip</button>
+      </div>
+      <div id="trip-fields">
+        <div class="group"><label class="cell input-row"><span class="row-label">Destination</span><input type="text" id="kind-destination-input" list="destination-names" placeholder="Zeeland" autocomplete="off" value="${escapeHtml(m.destinationName ?? '')}" /></label></div>
+        <button type="button" class="link-button" id="suggest-coordinate-button">Coördinaat voorstellen via OpenStreetMap</button>
+        <div id="gazetteer-suggestion"></div>
+      </div>
+      <p class="group-foot" id="kind-foot"></p>
+    `,
+    onMount(sheet) {
+      const input = sheet.content.querySelector('#kind-destination-input');
+      const refresh = () => {
+        sheet.content.querySelectorAll('#kind-seg button').forEach((b) => b.classList.toggle('on', b.dataset.kind === kind));
+        sheet.content.querySelector('#trip-fields').hidden = kind !== 'trip';
+        sheet.content.querySelector('#kind-foot').textContent = kind === 'trip'
+          ? (m.neverIndexed ? 'Een Trip staat ook op de globe. De Destination wordt gebruikt bij het eerste indexeren.' : 'Een Trip staat ook op de globe. Direct toegepast; op de globe na het volgende publiceren.')
+          : 'Een Memory staat alleen in de tijdlijn, niet op de globe.';
+      };
+      sheet.content.querySelectorAll('#kind-seg button').forEach((b) => b.addEventListener('click', () => {
+        kind = b.dataset.kind;
+        refresh();
+        if (kind === 'trip') input.focus();
+      }));
+      sheet.content.querySelector('#suggest-coordinate-button').addEventListener('click', () => suggestCoordinate(input.value.trim()));
+      refresh();
+    },
+    async onDone(sheet) {
+      const name = kind === 'trip' ? sheet.content.querySelector('#kind-destination-input').value.trim() : '';
+      if (kind === 'trip' && !name) throw new Error('Vul een Destination in, of kies Memory.');
+      if (name === (m.destinationName ?? '')) return;
+      await api('PUT', '/api/memories/destination', { memoryId: m.memoryId, destinationName: name });
+      await loadMemories();
+    },
+  });
+}
+
+/* Datum: an override lives in config.json; empty means the earliest photo. */
+function openDateSheet(m) {
+  openSheet({
+    title: 'Datum',
+    body: `
+      <div class="group"><label class="cell input-row"><span class="row-label">Datum</span><input type="date" id="date-input" value="${m.dateOverride ?? ''}" /></label></div>
+      <button type="button" class="link-button" id="clear-date-button" ${m.dateOverride ? '' : 'hidden'}>Gebruik de datum van de vroegste foto${m.defaultDate ? ` (${formatDay(m.defaultDate)})` : ''}</button>
+      <p class="group-foot">Onder deze datum staat de Memory in de tijdlijn. Leeg laten betekent de datum van de vroegste foto. Direct toegepast.</p>
+    `,
+    onMount(sheet) {
+      sheet.content.querySelector('#clear-date-button').addEventListener('click', () => {
+        sheet.content.querySelector('#date-input').value = '';
+        sheet.content.querySelector('#clear-date-button').hidden = true;
+      });
+    },
+    async onDone(sheet) {
+      const date = sheet.content.querySelector('#date-input').value;
+      if (date === (m.dateOverride ?? '')) return;
+      await api('PUT', '/api/memories/date', { memoryId: m.memoryId, date });
+      await loadMemories();
+    },
+  });
+}
+
+/* Naam: fixes a mistyped name in place (no rescan, so no lost curation). The
+   Memory's id and media filenames follow the new name on the next reindex; the
+   old files already published to the NAS stay there until removed by hand. */
+function openNameSheet(m) {
+  openSheet({
+    title: 'Naam',
+    doneLabel: 'Opslaan',
+    body: `
+      <div class="group"><label class="cell input-row"><span class="row-label">Naam</span><input type="text" id="memory-name-input" value="${escapeHtml(m.name)}" autocomplete="off" /></label></div>
+      <p class="group-foot">Past alleen de naam aan, zonder opnieuw te indexeren.</p>
+    `,
+    onMount(sheet) {
+      const input = sheet.content.querySelector('#memory-name-input');
+      input.focus();
+      input.select();
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sheet.overlay.querySelector('[data-act="done"]').click(); });
+    },
+    async onDone(sheet) {
+      const memoryName = sheet.content.querySelector('#memory-name-input').value.trim();
+      if (!memoryName) throw new Error('Vul een Memory-naam in.');
+      if (memoryName === m.name) return;
+      await api('PUT', '/api/memories/name', { memoryId: m.memoryId, memoryName });
+      await loadMemories();
+    },
+  });
+}
+
+/* Bronmappen: a Memory may draw on several; only the configuration changes
+   and the Memory gets the reindex dot; nothing is rebuilt until it is reindexed. */
+function openFoldersSheet(memoryId) {
+  const sheet = openSheet({
+    title: 'Bronmappen',
+    cancelLabel: '',
+    body: `
+      <div class="group" id="folder-group"></div>
+      <div class="group"><button type="button" class="cell accent-row" id="add-folder-to-memory-button">+ Map toevoegen…</button></div>
+      <p class="group-foot">Eén map kan in meer Memories zitten. Wijzigingen worden pas verwerkt bij het herindexeren; de laatste map kan niet worden verwijderd.</p>
+    `,
+    onMount(s) {
+      const render = () => {
+        const m = memories.find((x) => x.memoryId === memoryId);
+        const group = s.content.querySelector('#folder-group');
+        group.innerHTML = '';
+        if (!m) return;
+        for (const folder of m.folders) {
+          const { leaf, parent } = splitPath(folder.path);
+          const row = el(`
+            <div class="cell folder-row">
+              <button type="button" class="minus" aria-label="Map uit deze Memory halen"><span></span></button>
+              <div class="folder-text"><strong></strong><span class="path"></span></div>
+              <span class="tag"></span>
+            </div>
+          `);
+          row.querySelector('strong').textContent = leaf;
+          row.querySelector('.path').textContent = parent;
+          row.querySelector('.path').title = folder.path;
+          const tag = row.querySelector('.tag');
+          if (!folder.exists) { tag.textContent = 'niet gevonden'; tag.classList.add('warn'); }
+          else if (folder.alsoIn > 0) tag.textContent = `ook in ${folder.alsoIn} andere`;
+          else tag.remove();
+          const minus = row.querySelector('.minus');
+          minus.disabled = m.folders.length <= 1;
+          minus.title = minus.disabled ? 'Er moet minstens één map overblijven' : 'Map uit deze Memory halen';
+          minus.addEventListener('click', async () => {
+            s.error('');
+            try {
+              await api('DELETE', `/api/memories/folders?memoryId=${encodeURIComponent(memoryId)}&path=${encodeURIComponent(folder.path)}`);
+              await loadMemories();
+              render();
+            } catch (err) { s.error(err.message); }
+          });
+          group.append(row);
+        }
+      };
+      s.content.querySelector('#add-folder-to-memory-button').addEventListener('click', async () => {
+        const picked = await browseDialog();
+        if (!picked) return;
+        s.error('');
+        try {
+          await api('POST', '/api/memories/folders', { memoryId, path: picked });
+          await loadMemories();
+          render();
+        } catch (err) { s.error(err.message); }
+      });
+      render();
+    },
+  });
+  return sheet;
+}
+
+// "C:\Fotos\2024\Strand" -> { leaf: "Strand", parent: "C:\Fotos\2024" }
+function splitPath(path) {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  const leaf = parts.pop() ?? path;
+  const sep = path.includes('\\') ? '\\' : '/';
+  const lead = path.startsWith('\\\\') ? '\\\\' : '';
+  return { leaf, parent: lead + parts.join(sep) };
 }
 
 function renderMediaGrid(m) {
@@ -529,80 +731,6 @@ function renderMediaGrid(m) {
     }
 
     grid.append(tile);
-  }
-}
-
-/* ---- Source Folders of a Memory: only the configuration changes and the
-   Memory gets the reindex dot; nothing is rebuilt until it is reindexed. */
-
-async function addFolderToMemory(m) {
-  const picked = await browseDialog();
-  if (!picked) return;
-  const errorEl = document.getElementById('folder-error');
-  errorEl.hidden = true;
-  try {
-    await api('POST', '/api/memories/folders', { memoryId: m.memoryId, path: picked });
-    await loadMemories();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-  }
-}
-
-async function removeFolderFromMemory(m, path) {
-  const errorEl = document.getElementById('folder-error');
-  errorEl.hidden = true;
-  try {
-    await api('DELETE', `/api/memories/folders?memoryId=${encodeURIComponent(m.memoryId)}&path=${encodeURIComponent(path)}`);
-    await loadMemories();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-  }
-}
-
-/* ---- Soort: a Trip is a Memory with a Destination. Applied at once. */
-
-function openKindEditor(m) {
-  const box = document.getElementById('kind-editor');
-  openEditor(box, `
-    <div class="row" style="margin:8px 0">
-      <input type="text" id="kind-destination-input" list="destination-names" placeholder="Zeeland" value="${escapeHtml(m.destinationName ?? '')}" />
-      <button type="button" class="button small" id="apply-kind-button">${isTrip(m) ? 'Bijwerken' : 'Maak Trip'}</button>
-      <button type="button" class="button ghost small" id="suggest-coordinate-button">Coördinaat voorstellen</button>
-      ${isTrip(m) ? '<button type="button" class="button ghost small" id="clear-kind-button">Geen Trip meer</button>' : ''}
-      <button type="button" class="button ghost small" id="cancel-kind-button">Annuleren</button>
-    </div>
-    <div id="gazetteer-suggestion"></div>
-    <p class="hint" style="max-width:480px">${m.neverIndexed ? 'Wordt gebruikt bij het eerste indexeren.' : 'Direct toegepast, zonder opnieuw te indexeren; op de globe na het volgende publiceren.'}</p>
-    <p class="error" id="kind-error" style="max-width:480px" hidden></p>
-  `);
-  const input = box.querySelector('#kind-destination-input');
-  input.focus();
-  input.select();
-  box.querySelector('#cancel-kind-button').addEventListener('click', () => closeEditor(box));
-  box.querySelector('#suggest-coordinate-button').addEventListener('click', () => suggestCoordinate(input.value.trim()));
-  box.querySelector('#apply-kind-button').addEventListener('click', (e) => applyDestination(m, input.value.trim(), e.currentTarget));
-  box.querySelector('#clear-kind-button')?.addEventListener('click', (e) => applyDestination(m, '', e.currentTarget));
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-kind-button').click(); });
-}
-
-async function applyDestination(m, destinationName, button) {
-  const errorEl = document.getElementById('kind-error');
-  errorEl.hidden = true;
-  if (!destinationName && !isTrip(m)) {
-    errorEl.textContent = 'Vul een Destination-naam in, of annuleer.';
-    errorEl.hidden = false;
-    return;
-  }
-  button.disabled = true;
-  try {
-    await api('PUT', '/api/memories/destination', { memoryId: m.memoryId, destinationName });
-    await loadMemories();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-    button.disabled = false;
   }
 }
 
@@ -662,88 +790,6 @@ async function suggestCoordinate(name) {
   });
 }
 
-/* ---- Datum: an override lives in config.json; empty means the default. */
-
-function openDateEditor(m) {
-  const box = document.getElementById('date-editor');
-  openEditor(box, `
-    <div class="row" style="margin:8px 0">
-      <input type="date" id="date-input" value="${m.dateOverride ?? ''}" />
-      <button type="button" class="button small" id="apply-date-button">Opslaan</button>
-      ${m.dateOverride ? '<button type="button" class="button ghost small" id="clear-date-button">Standaard gebruiken</button>' : ''}
-      <button type="button" class="button ghost small" id="cancel-date-button">Annuleren</button>
-    </div>
-    <p class="hint" style="max-width:480px">Leeg laten = de datum van de vroegste foto${m.defaultDate ? ` (${formatDay(m.defaultDate)})` : ''}. Direct toegepast.</p>
-    <p class="error" id="date-error" style="max-width:480px" hidden></p>
-  `);
-  const input = box.querySelector('#date-input');
-  input.focus();
-  box.querySelector('#cancel-date-button').addEventListener('click', () => closeEditor(box));
-  box.querySelector('#apply-date-button').addEventListener('click', (e) => applyDate(m, input.value, e.currentTarget));
-  box.querySelector('#clear-date-button')?.addEventListener('click', (e) => applyDate(m, '', e.currentTarget));
-}
-
-async function applyDate(m, date, button) {
-  const errorEl = document.getElementById('date-error');
-  errorEl.hidden = true;
-  button.disabled = true;
-  try {
-    await api('PUT', '/api/memories/date', { memoryId: m.memoryId, date });
-    await loadMemories();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-    button.disabled = false;
-  }
-}
-
-/* ---- name */
-
-// Fixes a mistyped name in place (no rescan, so no lost curation). The
-// Memory's id and media filenames follow the new name on the next reindex;
-// the old files already published to the NAS stay there until removed by
-// hand, and the new ones go out with the next publish.
-function openNameEditor(m) {
-  const box = document.getElementById('name-editor');
-  openEditor(box, `
-    <div class="row" style="margin:8px 0">
-      <input type="text" id="memory-name-input" value="${escapeHtml(m.name)}" />
-      <button type="button" class="button small" id="apply-name-button">Opslaan</button>
-      <button type="button" class="button ghost small" id="cancel-name-button">Annuleren</button>
-    </div>
-    <p class="error" id="name-error" style="max-width:480px" hidden></p>
-  `);
-  const input = box.querySelector('#memory-name-input');
-  input.focus();
-  input.select();
-  box.querySelector('#cancel-name-button').addEventListener('click', () => closeEditor(box));
-  box.querySelector('#apply-name-button').addEventListener('click', (e) => applyName(m, input.value.trim(), e.currentTarget));
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('#apply-name-button').click(); });
-}
-
-async function applyName(m, memoryName, button) {
-  const errorEl = document.getElementById('name-error');
-  errorEl.hidden = true;
-  if (!memoryName) {
-    errorEl.textContent = 'Vul een Memory-naam in.';
-    errorEl.hidden = false;
-    return;
-  }
-  if (memoryName === m.name) {
-    closeEditor(document.getElementById('name-editor'));
-    return;
-  }
-  button.disabled = true;
-  try {
-    await api('PUT', '/api/memories/name', { memoryId: m.memoryId, memoryName });
-    await loadMemories();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.hidden = false;
-    button.disabled = false;
-  }
-}
-
 /* ---- indexing */
 
 async function startIndex(memoryId) {
@@ -781,20 +827,20 @@ function renderRunningDetail(detail, m) {
   // first progress callback has landed, with no extra code needed for it.
   const hasProgress = progressTotal != null && progressTotal > 0;
   detail.innerHTML = `
-    <div class="detail-head">
-      <h2>${escapeHtml(m.name)}</h2>
-      <div class="detail-actions">
-        <button type="button" class="button ghost small" id="cancel-run-button" ${cancelling ? 'disabled' : ''}>
-          ${cancelling ? 'Bezig met annuleren…' : 'Annuleren'}
-        </button>
+    <header class="mem-head">
+      <div class="mem-titles">
+        <h2>${escapeHtml(m.name)}</h2>
+        <p class="mem-sub"><span class="spinner"></span>Bezig met indexeren…</p>
       </div>
-    </div>
-    <div class="detail-sub"><span class="spinner"></span>Bezig met indexeren…</div>
-    <progress id="run-progress" ${hasProgress ? `value="${progressCurrent}" max="${progressTotal}"` : ''}></progress>
-    <div class="log-box" id="run-log"></div>
-    <div class="row" style="justify-content:flex-end">
-      <button type="button" class="button ghost small" id="copy-run-log-button">Kopiëren</button>
-    </div>
+      <div class="mem-actions">
+        <button type="button" class="pill secondary" id="cancel-run-button" ${cancelling ? 'disabled' : ''}>${cancelling ? 'Bezig met annuleren…' : 'Annuleren'}</button>
+      </div>
+    </header>
+    <section class="group run-card">
+      <progress id="run-progress" ${hasProgress ? `value="${progressCurrent}" max="${progressTotal}"` : ''}></progress>
+      <div class="log-box" id="run-log"></div>
+      <div class="run-foot"><button type="button" class="link-button inline" id="copy-run-log-button">Log kopiëren</button></div>
+    </section>
   `;
   document.getElementById('run-log').textContent = activeRun.log.join('\n');
   document.getElementById('cancel-run-button').addEventListener('click', cancelActiveRun);
