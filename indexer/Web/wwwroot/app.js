@@ -208,7 +208,7 @@ document.getElementById('folder-filter').addEventListener('input', (e) => {
 function renderKindFilter() {
   const bar = document.getElementById('kind-filter');
   bar.innerHTML = '';
-  for (const [kind, label] of [['all', 'Alles'], ['trips', 'Trips'], ['memories', 'Memory']]) {
+  for (const [kind, label] of [['all', 'Alles'], ['trips', 'Trips'], ['memories', 'Memories']]) {
     const count = memories.filter((m) => matchesKind(m, kind)).length;
     const button = el(`<button type="button" class="${kind === kindFilter ? 'on' : ''}"></button>`);
     button.textContent = `${label} ${count}`;

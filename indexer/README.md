@@ -10,7 +10,7 @@ dotnet run --project indexer
 
 Starts a local web server (default `http://localhost:5183`) and opens it in your default browser. The screen is one list of **Memories** (a Trip is a Memory with a Destination) with the detail of the selected one next to it:
 
-- **The list** groups Memories by the year of their date, newest first, with Memories not indexed yet in their own group on top. A 📍 marks a Trip and an orange dot means "needs reindex". The filter above it shows Alles / Trips / Memory with their counts.
+- **The list** groups Memories by the year of their date, newest first, with Memories not indexed yet in their own group on top. A 📍 marks a Trip and an orange dot means "needs reindex". The filter above it shows Alles / Trips / Memories with their counts.
 - **+ Nieuwe Memory** takes a name and a first Source Folder ("Bladeren…" opens a picker over the Indexer's own filesystem, since a plain browser page can't get a real path back from a native OS dialog; typing the path works too), then **Indexeren** builds it and a thumbnail review grid appears.
 - **Soort** — a Trip has a Destination ("Destination wijzigen…", or "Maak er een Trip van…" for a Memory that has none; "Geen Trip meer" removes it). Applied at once to `catalog.json` with a Gazetteer lookup, no reindex; the globe picks it up after the next publish.
 - **Datum** — the effective date, with "(standaard …)" when overridden. "Wijzigen…" sets an override (empty = back to the date of the earliest photo). Applied at once; the override lives in `config.json`, the catalogue only holds the effective date.
