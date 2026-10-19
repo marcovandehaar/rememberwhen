@@ -78,7 +78,11 @@ public static class CatalogBuilder
         var curationPath = CurationFile.PathFor(curationFolder, memoryId);
         var curation = CurationFile.Load(curationPath);
         var inPool = files.Select(f => f.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var droppedEdits = curation.DropMissing(inPool.Contains);
+        // An edit is only dropped when its file is really gone: still on disk (say, in a folder taken out
+        // of this Memory) or in a folder that cannot be reached right now (a NAS that is offline) keeps it.
+        bool StillThere(string path) =>
+            inPool.Contains(path) || File.Exists(path) || !Directory.Exists(Path.GetDirectoryName(path));
+        var droppedEdits = curation.DropMissing(StillThere);
         if (droppedEdits > 0) log.WriteLine($"{droppedEdits} bewerking(en) van bestanden die niet meer bestaan zijn vergeten.");
         var skippedByOperator = files.Where(f => curation.RemovedFiles.Contains(f.FullPath)).ToList();
         if (skippedByOperator.Count > 0)
@@ -137,27 +141,20 @@ public static class CatalogBuilder
 
         foreach (var anomaly in detection.Anomalies) log.WriteLine(anomaly.Message);
 
-        // Anomalies are recomputed fresh every run; the operator's edits in
-        // the same file are kept (what was dropped above stays dropped).
-        curation.Anomalies.Clear();
-        foreach (var anomaly in detection.Anomalies)
-            curation.Anomalies[anomaly.Cause] = new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList());
-
-        // Not something the catalogue depends on — an unwritable
-        // Curation-folder must not sink a run whose anomalies are
-        // otherwise handled automatically and non-blockingly (see the
-        // file header above).
-        if (!curation.IsEmpty || File.Exists(curationPath))
+        // Anomalies are recomputed fresh every run and saved next to the operator's edits.
+        // Not something the catalogue depends on — an unwritable Curation-folder must not
+        // sink a run whose anomalies are otherwise handled automatically and non-blockingly.
+        var anomalies = detection.Anomalies.ToDictionary(
+            anomaly => anomaly.Cause,
+            anomaly => new AnomalyRecord(anomaly.Message, anomaly.Handling, anomaly.AffectedFiles.ToList()));
+        try
         {
-            try
-            {
-                Directory.CreateDirectory(curationFolder);
-                curation.Save(curationPath);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                log.WriteLine($"Kon curatiebestand niet wegschrijven naar {curationFolder}: {ex.Message}");
-            }
+            lock (CatalogStore.Gate)
+                CurationFile.SaveBuildResult(curationPath, anomalies, StillThere);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.WriteLine($"Kon curatiebestand niet wegschrijven naar {curationFolder}: {ex.Message}");
         }
 
         var ordered = read

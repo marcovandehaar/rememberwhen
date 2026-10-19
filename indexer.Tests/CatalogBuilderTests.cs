@@ -711,4 +711,31 @@ public class CatalogBuilderTests : IDisposable
         Assert.DoesNotContain(_sourceDir, json);
         Assert.DoesNotContain(_sourceDir.Replace("\\", "\\\\"), json);
     }
+
+    [Fact]
+    public void An_edit_for_a_file_outside_the_memorys_folders_is_kept_while_the_file_still_exists()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        var other = MakeFolder("andere-map");
+        var elsewhere = Path.Combine(other, "verwijderd.jpg");
+        TestImages.WriteJpeg(elsewhere, 800, 600, new DateTime(2016, 7, 1, 10, 0, 0));
+        Curated("Zeeland 2016", c => c.RemoveFile(elsewhere));
+
+        BuildZeeland();
+
+        // the folder was taken out of the Memory, but re-adding it later must not bring the removed photo back
+        Assert.Equal([elsewhere], CurationFile.Load(CurationPath("Zeeland 2016")).RemovedFiles);
+    }
+
+    [Fact]
+    public void An_edit_for_a_file_in_a_folder_that_cannot_be_reached_is_kept_rather_than_assumed_gone()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+        var unreachable = Path.Combine(Path.GetDirectoryName(_sourceDir)!, "nas-offline", "x.jpg");
+        Curated("Zeeland 2016", c => c.RemoveFile(unreachable));
+
+        BuildZeeland();
+
+        Assert.Equal([unreachable], CurationFile.Load(CurationPath("Zeeland 2016")).RemovedFiles);
+    }
 }

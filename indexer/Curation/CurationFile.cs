@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Indexer.Curation;
 
@@ -30,13 +31,16 @@ public sealed class CurationFile
     public Dictionary<string, AnomalyRecord> Anomalies { get; init; } = [];
 
     // Source files the operator took out of the Memory.
-    public HashSet<string> RemovedFiles { get; init; } = [];
+    // Paths compare without regard to case, as the NAS does; Populate keeps that comparer when loading.
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public HashSet<string> RemovedFiles { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     // The source file the operator chose as the cover; null = the earliest photo.
     public string? CoverFile { get; set; }
 
     // Source file -> clockwise degrees (90, 180 or 270).
-    public Dictionary<string, int> Rotations { get; init; } = [];
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public Dictionary<string, int> Rotations { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsEmpty => Anomalies.Count == 0 && RemovedFiles.Count == 0 && CoverFile is null && Rotations.Count == 0;
 
@@ -87,6 +91,26 @@ public sealed class CurationFile
     public static string PathFor(string curationFolder, string memoryId) =>
         Path.Combine(curationFolder, $"{memoryId}.curation.json");
 
+    // What a finished build writes. The build read the file minutes ago (a
+    // NAS scan is slow), and an edit made in the review screen since then must
+    // not be overwritten with that stale copy: the latest file is reloaded, the
+    // anomalies are replaced with this run's, and edits whose file is gone are
+    // dropped. Returns how many were dropped. Call under CatalogStore.Gate.
+    public static int SaveBuildResult(string path, Dictionary<string, AnomalyRecord> anomalies, Func<string, bool> exists)
+    {
+        var latest = Load(path);
+        latest.Anomalies.Clear();
+        foreach (var (cause, record) in anomalies) latest.Anomalies[cause] = record;
+        var dropped = latest.DropMissing(exists);
+
+        if (!latest.IsEmpty || File.Exists(path))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            latest.Save(path);
+        }
+        return dropped;
+    }
+
     // A reindex under a new name re-keys the Memory's id: its curation moves
     // with it, so the edits survive. A curation file the new id already has
     // wins. The old item map is just left to rot; the next build writes a
@@ -103,8 +127,14 @@ public sealed class CurationFile
             else File.Move(from, to);
         }
 
+        // The item map moves too: if the build under the new id fails, the Memory still has its map.
         var oldMap = ItemMap.PathFor(curationFolder, oldMemoryId);
-        if (File.Exists(oldMap)) File.Delete(oldMap);
+        var newMap = ItemMap.PathFor(curationFolder, newMemoryId);
+        if (File.Exists(oldMap))
+        {
+            if (File.Exists(newMap)) File.Delete(oldMap);
+            else File.Move(oldMap, newMap);
+        }
     }
 }
 

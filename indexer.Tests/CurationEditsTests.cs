@@ -121,7 +121,7 @@ public class CurationEditsTests : IDisposable
     }
 
     [Fact]
-    public void A_memory_that_gets_a_new_id_takes_its_curation_along_and_leaves_the_old_map_behind_unused()
+    public void A_memory_that_gets_a_new_id_takes_its_curation_and_item_map_along()
     {
         var curation = CurationFile.CreateEmpty();
         curation.RemoveFile("a.jpg");
@@ -132,6 +132,8 @@ public class CurationEditsTests : IDisposable
 
         Assert.Equal(["a.jpg"], CurationFile.Load(CurationFile.PathFor(_root, "nieuw")).RemovedFiles);
         Assert.False(File.Exists(CurationFile.PathFor(_root, "oud")));
+        // the item map moves too, so a failed build under the new id leaves the Memory with its map
+        Assert.Equal("a.jpg", ItemMap.Load(ItemMap.PathFor(_root, "nieuw"))!["oud-c1-0000-a"]);
         Assert.False(File.Exists(ItemMap.PathFor(_root, "oud")));
     }
 
@@ -148,5 +150,53 @@ public class CurationEditsTests : IDisposable
         CurationFile.Rekey(_root, "oud", "nieuw");
 
         Assert.Equal(["nieuw.jpg"], CurationFile.Load(CurationFile.PathFor(_root, "nieuw")).RemovedFiles);
+    }
+
+    [Fact]
+    public void Paths_match_regardless_of_case_since_the_nas_does_not_care()
+    {
+        var path = Path.Combine(_root, "m.curation.json");
+        var curation = CurationFile.CreateEmpty();
+        curation.RemoveFile(@"\\NAS\Fotos\A.jpg");
+        curation.Rotate(@"\\NAS\Fotos\B.jpg");
+        curation.Save(path);
+
+        var loaded = CurationFile.Load(path);
+
+        Assert.Contains(@"\\nas\fotos\a.jpg", loaded.RemovedFiles);
+        Assert.True(loaded.Rotations.ContainsKey(@"\\nas\fotos\b.jpg"));
+    }
+
+    [Fact]
+    public void Saving_a_build_keeps_an_edit_made_while_the_build_was_running()
+    {
+        var path = CurationFile.PathFor(_root, "zeeland");
+        var duringTheBuild = CurationFile.CreateEmpty();
+        duringTheBuild.RemoveFile("later-verwijderd.jpg");
+        duringTheBuild.Save(path);
+
+        var anomalies = new Dictionary<string, AnomalyRecord> { ["NIKON D50"] = new("klok", AnomalyHandling.UseMtime, ["x.jpg"]) };
+        CurationFile.SaveBuildResult(path, anomalies, _ => true);
+
+        var saved = CurationFile.Load(path);
+        Assert.Equal(["later-verwijderd.jpg"], saved.RemovedFiles);
+        Assert.Contains("NIKON D50", saved.Anomalies.Keys);
+    }
+
+    [Fact]
+    public void Saving_a_build_replaces_the_anomalies_and_drops_edits_whose_file_is_gone()
+    {
+        var path = CurationFile.PathFor(_root, "zeeland");
+        var before = CurationFile.CreateEmpty();
+        before.Anomalies["oud"] = new("oud", AnomalyHandling.UseMtime, []);
+        before.RemoveFile("weg.jpg");
+        before.Save(path);
+
+        var dropped = CurationFile.SaveBuildResult(path, [], p => p != "weg.jpg");
+
+        var saved = CurationFile.Load(path);
+        Assert.Empty(saved.Anomalies);
+        Assert.Empty(saved.RemovedFiles);
+        Assert.Equal(1, dropped);
     }
 }
