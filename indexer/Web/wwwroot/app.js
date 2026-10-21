@@ -328,8 +328,11 @@ function renderDetail() {
     return;
   }
 
-  if (activeRun && activeRun.memoryId === memory.memoryId) renderRunningDetail(detail, memory);
-  else renderMemoryDetail(detail, memory);
+  if (activeRun && activeRun.memoryId === memory.memoryId) {
+    // Every poll lands here: touch only what changed, so the header and buttons
+    // do not flicker and the log keeps the scroll position the operator chose (#77).
+    if (!updateRunningDetail()) renderRunningDetail(detail, memory);
+  } else renderMemoryDetail(detail, memory);
 }
 
 /* ---- detail of one Memory (#65, redesigned): a title, one primary action, a
@@ -824,6 +827,40 @@ async function indexMemory(m) {
   }
 }
 
+// A log box fills from the bottom: it follows the newest line only while it is
+// already scrolled to the end, and otherwise stays exactly where it is. New lines
+// are appended to the existing text node rather than replacing the content.
+function syncLogBox(el, lines) {
+  const text = lines.join('\n');
+  const top = el.scrollTop;
+  const following = top + el.clientHeight >= el.scrollHeight - 8;
+  const shown = el.textContent;
+  if (shown !== text) {
+    if (el.firstChild && text.startsWith(shown)) el.firstChild.appendData(text.slice(shown.length));
+    else el.textContent = text;
+  }
+  el.scrollTop = following ? el.scrollHeight : top;
+}
+
+function setProgress(progressEl, current, total) {
+  if (total != null && total > 0) { progressEl.value = current; progressEl.max = total; }
+  else { progressEl.removeAttribute('value'); progressEl.removeAttribute('max'); }
+}
+
+// The running view already on screen for this run, brought up to date in place.
+// False when it is not there (first render, or the operator came back to it).
+function updateRunningDetail() {
+  const logEl = document.getElementById('run-log');
+  if (!logEl || logEl.dataset.runId !== activeRun.runId) return false;
+
+  setProgress(document.getElementById('run-progress'), activeRun.progressCurrent, activeRun.progressTotal);
+  const cancel = document.getElementById('cancel-run-button');
+  cancel.disabled = !!activeRun.cancelling;
+  cancel.textContent = activeRun.cancelling ? 'Bezig met annuleren…' : 'Annuleren';
+  syncLogBox(logEl, activeRun.log);
+  return true;
+}
+
 function renderRunningDetail(detail, m) {
   const { progressCurrent, progressTotal, cancelling } = activeRun;
   // No value/max attribute at all (rather than 0/0) renders as the browser's
@@ -842,11 +879,11 @@ function renderRunningDetail(detail, m) {
     </header>
     <section class="group run-card">
       <progress id="run-progress" ${hasProgress ? `value="${progressCurrent}" max="${progressTotal}"` : ''}></progress>
-      <div class="log-box" id="run-log"></div>
+      <div class="log-box" id="run-log" data-run-id="${activeRun.runId}"></div>
       <div class="run-foot"><button type="button" class="link-button inline" id="copy-run-log-button">Log kopiëren</button></div>
     </section>
   `;
-  document.getElementById('run-log').textContent = activeRun.log.join('\n');
+  syncLogBox(document.getElementById('run-log'), activeRun.log);
   document.getElementById('cancel-run-button').addEventListener('click', cancelActiveRun);
   document.getElementById('copy-run-log-button').addEventListener('click', (e) => copyLog(activeRun.log.join('\n'), e.currentTarget));
 }
@@ -1288,10 +1325,7 @@ function renderDeploy() {
     else { statusEl.textContent = ''; errorEl.textContent = error; errorEl.hidden = false; }
   }
 
-  const logEl = document.getElementById('deploy-log');
-  const stickToBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
-  logEl.textContent = log.join('\n');
-  if (stickToBottom) logEl.scrollTop = logEl.scrollHeight;
+  syncLogBox(document.getElementById('deploy-log'), log);
 }
 
 function beginDeploy(runId) {
