@@ -660,3 +660,5 @@ button.cell:active { background: rgba(0, 0, 0, 0.08); }
 
 /* The header, filter and search stay put; only the list below them scrolls (#76). */
 .sidebar-head, .kind-filter, .folder-filter { flex: none; }
+
+.group-eyebrow { margin: 22px 16px 6px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }

@@ -425,7 +425,7 @@ function renderMemoryDetail(detail, m) {
   document.getElementById('more-button').addEventListener('click', (e) => openMoreMenu(e.currentTarget, m));
   document.getElementById('row-kind').addEventListener('click', () => openKindSheet(m));
   document.getElementById('row-date').addEventListener('click', () => openDateSheet(m));
-  document.getElementById('row-folders').addEventListener('click', () => openFoldersSheet(m.memoryId));
+  document.getElementById('row-folders').addEventListener('click', () => openEditSheet(m));
 }
 
 /* ---- the "•••" menu: what is rarely needed lives here, not on the page */
@@ -436,7 +436,7 @@ function openMoreMenu(button, m) {
 
   const menu = el(`
     <div class="menu" role="menu">
-      <button type="button" role="menuitem" data-act="rename">Naam wijzigen…</button>
+      <button type="button" role="menuitem" data-act="rename">Bewerken…</button>
       <button type="button" role="menuitem" class="destructive" data-act="remove">Verwijderen…</button>
     </div>
   `);
@@ -453,7 +453,7 @@ function openMoreMenu(button, m) {
   document.addEventListener('pointerdown', outside, true);
   document.addEventListener('keydown', escape);
 
-  menu.querySelector('[data-act="rename"]').addEventListener('click', () => { closeMenu(anchor); openNameSheet(m); });
+  menu.querySelector('[data-act="rename"]').addEventListener('click', () => { closeMenu(anchor); openEditSheet(m); });
   menu.querySelector('[data-act="remove"]').addEventListener('click', () => { closeMenu(anchor); removeMemory(m); });
 }
 
@@ -587,51 +587,36 @@ function openDateSheet(m) {
   });
 }
 
-/* Naam: fixes a mistyped name in place (no rescan, so no lost curation). The
-   Memory's id and media filenames follow the new name on the next reindex; the
-   old files already published to the NAS stay there until removed by hand. */
-function openNameSheet(m) {
+/* Bewerken: the name and the Bronmappen of a Memory in one sheet, applied on
+   Opslaan (Annuleren drops the draft). The name is fixed in place, without a
+   rescan; the Memory's id and media folder follow the new name on the next
+   reindex. Added or removed folders only change the configuration and give the
+   Memory the reindex dot; nothing is rebuilt until it is reindexed. At least one
+   folder always remains. */
+function openEditSheet(m) {
+  const original = m.folders.map((f) => f.path);
+  // The draft: every folder with what the list shows about it. Paths added in
+  // this sheet have no `exists`/`alsoIn` yet; the folder picker only offers existing ones.
+  let draft = m.folders.map((f) => ({ ...f }));
+
   openSheet({
-    title: 'Naam',
+    title: 'Bewerken',
     doneLabel: 'Opslaan',
     body: `
       <div class="group"><label class="cell input-row"><span class="row-label">Naam</span><input type="text" id="memory-name-input" value="${escapeHtml(m.name)}" autocomplete="off" /></label></div>
-      <p class="group-foot">Past alleen de naam aan, zonder opnieuw te indexeren.</p>
-    `,
-    onMount(sheet) {
-      const input = sheet.content.querySelector('#memory-name-input');
-      input.focus();
-      input.select();
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sheet.overlay.querySelector('[data-act="done"]').click(); });
-    },
-    async onDone(sheet) {
-      const memoryName = sheet.content.querySelector('#memory-name-input').value.trim();
-      if (!memoryName) throw new Error('Vul een Memory-naam in.');
-      if (memoryName === m.name) return;
-      await api('PUT', '/api/memories/name', { memoryId: m.memoryId, memoryName });
-      await loadMemories();
-    },
-  });
-}
-
-/* Bronmappen: a Memory may draw on several; only the configuration changes
-   and the Memory gets the reindex dot; nothing is rebuilt until it is reindexed. */
-function openFoldersSheet(memoryId) {
-  const sheet = openSheet({
-    title: 'Bronmappen',
-    cancelLabel: '',
-    body: `
+      <p class="group-eyebrow">Bronmappen</p>
       <div class="group" id="folder-group"></div>
       <div class="group"><button type="button" class="cell accent-row" id="add-folder-to-memory-button">+ Map toevoegen…</button></div>
-      <p class="group-foot">Eén map kan in meer Memories zitten. Wijzigingen worden pas verwerkt bij het herindexeren; de laatste map kan niet worden verwijderd.</p>
+      <p class="group-foot">Eén map kan in meer Memories zitten. Wijzigingen aan de mappen worden pas verwerkt bij het herindexeren; er blijft minstens één map.</p>
     `,
     onMount(s) {
+      const nameInput = s.content.querySelector('#memory-name-input');
+      nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') s.overlay.querySelector('[data-act="done"]').click(); });
+
       const render = () => {
-        const m = memories.find((x) => x.memoryId === memoryId);
         const group = s.content.querySelector('#folder-group');
         group.innerHTML = '';
-        if (!m) return;
-        for (const folder of m.folders) {
+        for (const folder of draft) {
           const { leaf, parent } = splitPath(folder.path);
           const row = el(`
             <div class="cell folder-row">
@@ -644,37 +629,50 @@ function openFoldersSheet(memoryId) {
           row.querySelector('.path').textContent = parent;
           row.querySelector('.path').title = folder.path;
           const tag = row.querySelector('.tag');
-          if (!folder.exists) { tag.textContent = 'niet gevonden'; tag.classList.add('warn'); }
+          if (folder.exists === false) { tag.textContent = 'niet gevonden'; tag.classList.add('warn'); }
           else if (folder.alsoIn > 0) tag.textContent = `ook in ${folder.alsoIn} andere`;
           else tag.remove();
           const minus = row.querySelector('.minus');
-          minus.disabled = m.folders.length <= 1;
+          minus.disabled = draft.length <= 1;
           minus.title = minus.disabled ? 'Er moet minstens één map overblijven' : 'Map uit deze Memory halen';
-          minus.addEventListener('click', async () => {
-            s.error('');
-            try {
-              await api('DELETE', `/api/memories/folders?memoryId=${encodeURIComponent(memoryId)}&path=${encodeURIComponent(folder.path)}`);
-              await loadMemories();
-              render();
-            } catch (err) { s.error(err.message); }
+          minus.addEventListener('click', () => {
+            draft = draft.filter((f) => f.path !== folder.path);
+            render();
           });
           group.append(row);
         }
       };
+
       s.content.querySelector('#add-folder-to-memory-button').addEventListener('click', async () => {
         const picked = await browseDialog();
         if (!picked) return;
-        s.error('');
-        try {
-          await api('POST', '/api/memories/folders', { memoryId, path: picked });
-          await loadMemories();
-          render();
-        } catch (err) { s.error(err.message); }
+        if (!draft.some((f) => f.path === picked)) draft.push({ path: picked });
+        render();
       });
       render();
+      nameInput.focus();
+      nameInput.select();
+    },
+    async onDone(s) {
+      const memoryName = s.content.querySelector('#memory-name-input').value.trim();
+      if (!memoryName) throw new Error('Vul een Memory-naam in.');
+      if (draft.length === 0) throw new Error('Er moet minstens één map overblijven.');
+
+      // The name first: it is the step that can be refused for a clash, and
+      // nothing has changed yet when it is. Folders are added before any are
+      // removed, so the Memory never has none.
+      if (memoryName !== m.name) await api('PUT', '/api/memories/name', { memoryId: m.memoryId, memoryName });
+      const kept = new Set(draft.map((f) => f.path));
+      try {
+        for (const folder of draft.filter((f) => !original.includes(f.path)))
+          await api('POST', '/api/memories/folders', { memoryId: m.memoryId, path: folder.path });
+        for (const path of original.filter((p) => !kept.has(p)))
+          await api('DELETE', `/api/memories/folders?memoryId=${encodeURIComponent(m.memoryId)}&path=${encodeURIComponent(path)}`);
+      } finally {
+        await loadMemories();
+      }
     },
   });
-  return sheet;
 }
 
 // "C:\Fotos\2024\Strand" -> { leaf: "Strand", parent: "C:\Fotos\2024" }
