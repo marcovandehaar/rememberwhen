@@ -224,6 +224,8 @@ function renderSidebar() {
   const list = document.getElementById('folder-list');
   const empty = document.getElementById('folder-list-empty');
   const filterEmpty = document.getElementById('folder-filter-empty');
+  // The list is rebuilt on every selection; keep where the operator had scrolled to.
+  const scrollTop = list.scrollTop;
   list.innerHTML = '';
   renderKindFilter();
 
@@ -266,9 +268,11 @@ function renderSidebar() {
       selectedId = m.memoryId;
       renderSidebar();
       renderDetail();
+      document.getElementById('detail').scrollTop = 0; // a different Memory starts at its top
     });
     list.append(item);
   }
+  list.scrollTop = scrollTop;
 }
 
 /* ============================================================= new memory */

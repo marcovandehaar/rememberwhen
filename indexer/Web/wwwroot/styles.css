@@ -26,6 +26,10 @@
 
 html, body { height: 100%; }
 
+/* The screen is exactly the window (#76): the topbar and the shell stack in
+   it, and the list and the detail pane scroll inside the shell, not the page. */
+body { display: flex; flex-direction: column; overflow: hidden; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -49,7 +53,10 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
   justify-content: space-between;
   padding: 16px 24px;
   max-width: 1080px;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
+  flex: none;
 }
 .topbar h1 { font-size: 17px; }
 
@@ -73,13 +80,16 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 .shell {
   display: flex;
   max-width: 1080px;
-  margin: 0 auto 32px;
+  width: 100%;
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  margin: 0 auto 24px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
-  min-height: 560px;
 }
 
 .sidebar {
@@ -88,6 +98,7 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .sidebar-head {
@@ -128,7 +139,7 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 .browse-item:hover { background: #fafafa; }
 .browse-item svg { width: 15px; height: 15px; color: var(--text-dim); flex-shrink: 0; }
 
-.folder-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.folder-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
 
 .folder-item {
   padding: 12px 16px;
@@ -167,7 +178,7 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 .empty-state.centered { flex: 1; display: flex; align-items: center; justify-content: center; }
 
 /* ---- detail pane ---- */
-.detail { flex: 1; display: flex; flex-direction: column; padding: 28px 32px; min-width: 0; }
+.detail { flex: 1; display: flex; flex-direction: column; padding: 28px 32px; min-width: 0; min-height: 0; overflow-y: auto; }
 
 .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
 .detail-head h2 { font-size: 19px; }
@@ -646,3 +657,6 @@ button.cell:active { background: rgba(0, 0, 0, 0.08); }
   .sidebar { width: auto; border-right: none; border-bottom: 1px solid var(--hair); max-height: 40vh; }
   .detail { padding: 24px 20px 32px; }
 }
+
+/* The header, filter and search stay put; only the list below them scrolls (#76). */
+.sidebar-head, .kind-filter, .folder-filter { flex: none; }
