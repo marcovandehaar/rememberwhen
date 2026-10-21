@@ -80,15 +80,8 @@ public sealed class IndexerConfig
                ?? throw new InvalidDataException($"Configuratie op {path} kon niet gelezen worden.");
     }
 
-    // A config that still has its V1 folders (the migration failed or hasn't
-    // run) must not be overwritten: this model doesn't read them, so saving
-    // would silently erase the folder list and pass the migration's commit point.
     public void Save(string path)
     {
-        if (ConfigMigrationV2.ReadV1(path) is not null)
-            throw new InvalidOperationException(
-                $"{path} is nog niet gemigreerd naar V2; herstel de migratie (zie de melding in de Indexer) voordat je instellingen opslaat.");
-
         File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOptions.Default));
     }
 

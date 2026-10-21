@@ -47,19 +47,6 @@ public class IndexerConfigTests : IDisposable
         Assert.Equal(["C:\\Photos\\Schotland 2010"], memory.SourceFolders);
     }
 
-    [Fact]
-    public void Saving_over_a_config_that_still_has_its_v1_folders_is_refused_so_they_are_not_lost()
-    {
-        var path = Path.Combine(_root, "config.json");
-        Directory.CreateDirectory(_root);
-        const string v1 = """{ "sourceFolders": [ "C:\\Photos\\X" ], "indexedFolders": [] }""";
-        File.WriteAllText(path, v1);
-
-        Assert.Throws<InvalidOperationException>(() => new IndexerConfig().Save(path));
-
-        Assert.Equal(v1, File.ReadAllText(path));
-    }
-
     private string Folder(string name)
     {
         var path = Path.Combine(_root, name);

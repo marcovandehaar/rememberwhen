@@ -474,23 +474,6 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
   .detail { padding: 20px; }
 }
 
-/* ---- migration banner (below the topbar) ---- */
-.migration-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  max-width: 1032px;
-  margin: 0 auto 12px;
-  padding: 12px 16px;
-  border-radius: var(--radius-sm);
-  background: #eaf6ee;
-  font-size: 13px;
-}
-.migration-banner[data-state="failed"] { background: #fdecee; color: var(--danger); }
-.migration-banner .migration-text { flex: 1; }
-.migration-banner .migration-text p { margin: 0 0 4px; }
-.migration-banner .migration-text ul { margin: 4px 0 0; padding-left: 18px; }
-
 /* ---- Memories list (#65) ---- */
 .kind-filter { display: flex; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .kind-filter button { flex: 1; border: 0; background: var(--panel); padding: 5px 4px; font-size: 12.5px; cursor: pointer; color: var(--text-dim); }

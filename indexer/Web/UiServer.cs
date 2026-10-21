@@ -44,7 +44,6 @@ public static class UiServer
             client.DefaultRequestHeaders.UserAgent.ParseAdd("rememberwhen-indexer/1.0 (+https://github.com/marcovandehaar/rememberwhen)");
         });
 
-        RunStartupMigrations(configPath);
 
         var app = builder.Build();
         var runs = new RunTracker();
@@ -310,19 +309,6 @@ public static class UiServer
             }
 
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);
-        });
-
-        // The banner reads the report a startup migration left next to
-        // config.json; dismissing deletes it. A failed migration writes a
-        // fresh one on the next start, so a dismissed failure can't hide a
-        // problem that is still there.
-        app.MapGet("/api/migration-report", () =>
-            Results.Json(MigrationReport.Load(MigrationReportPath(configPath)), JsonOptions.Default));
-
-        app.MapDelete("/api/migration-report", () =>
-        {
-            File.Delete(MigrationReportPath(configPath));
-            return Results.NoContent();
         });
 
         app.MapGet("/api/pending-publish", () =>
@@ -1095,31 +1081,6 @@ public static class UiServer
         Path.IsPathRooted(maybeRelative)
             ? maybeRelative
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, maybeRelative));
-
-    private static string MigrationReportPath(string configPath) =>
-        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, MigrationRunner.ReportFileName);
-
-    // Before the first request is served, so no handler ever sees a V1
-    // catalogue. The runner reports its own failures; the Indexer starts either way.
-    private static void RunStartupMigrations(string configPath)
-    {
-        var config = IndexerConfig.Load(configPath);
-        var catalogPath = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "catalog.json");
-        Dictionary<string, DateTimeOffset> indexedAt;
-        try
-        {
-            indexedAt = (ConfigMigrationV2.ReadV1(configPath)?.IndexedFolders ?? [])
-                .ToDictionary(f => f.MemoryId, f => f.IndexedAt);
-        }
-        catch (Exception)
-        {
-            indexedAt = []; // the config step reports an unreadable config itself
-        }
-
-        MigrationRunner.Run(MigrationReportPath(configPath), Console.Out,
-            () => CatalogMigrationV2.Run(catalogPath, PendingPublishPath(configPath), indexedAt),
-            () => ConfigMigrationV2.Run(configPath, catalogPath));
-    }
 
     // Lives next to config.json — operator-local bookkeeping, not part of
     // the published output, same reasoning as config.json itself.
