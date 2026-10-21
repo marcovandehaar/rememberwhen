@@ -53,7 +53,7 @@ public static class CatalogStore
     };
 
     public static bool IsCover(RwMemory memory, string itemId) =>
-        memory.CoverImage.StartsWith($"media/{itemId}-", StringComparison.Ordinal);
+        Path.GetFileName(memory.CoverImage).StartsWith($"{itemId}-", StringComparison.Ordinal);
 
     public sealed record RemoveMediaItemResult(RwCatalog Catalog, string? Error, bool NotFound = false);
 
@@ -230,24 +230,37 @@ public static class CatalogStore
         return Replace(catalog, updatedMemory);
     }
 
-    // Every derivative file for a Chapter is named starting with the Chapter
-    // id, e.g. "schotland-2010-c1-0000-...". Deleting by that prefix removes
-    // the whole Chapter's files in one pass.
-    public static void DeleteMediaFiles(string mediaDir, string prefix)
-    {
-        if (!Directory.Exists(mediaDir)) return;
+    // A Memory's derivatives live in their own folder, media/<memoryId>/ (#79).
+    public static string MemoryDir(string mediaDir, string memoryId) => Path.Combine(mediaDir, memoryId);
 
-        foreach (var file in Directory.GetFiles(mediaDir, $"{prefix}*"))
+    // The file a /media/<memoryId>/<file> request names, or null when it
+    // resolves outside the media folder (e.g. "../config.json") or is absent.
+    public static string? ResolveMediaFile(string mediaDir, string requestPath)
+    {
+        var root = Path.GetFullPath(mediaDir);
+        var full = Path.GetFullPath(Path.Combine(root, requestPath));
+        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(full)
+            ? full
+            : null;
+    }
+
+    // Every derivative file of a Media Item is named starting with its id,
+    // e.g. "schotland-2010-c1-0000-...". Deleting by that prefix removes the
+    // item's files (story derivative, and cover thumbnail/photo if it is the
+    // cover) in one pass. `memoryDir` is the Memory's own folder.
+    public static void DeleteMediaFiles(string memoryDir, string prefix)
+    {
+        if (!Directory.Exists(memoryDir)) return;
+
+        foreach (var file in Directory.GetFiles(memoryDir, $"{prefix}*"))
             File.Delete(file);
     }
 
-    // Same idea as DeleteMediaFiles, but derives the prefix from the Memory's
-    // actual Chapters instead of assuming the "-c1-" naming a single
-    // hardcoded Chapter happens to produce today.
+    // The whole Memory folder goes, rather than a glob per Chapter prefix.
     public static void DeleteMediaFilesForMemory(string mediaDir, RwMemory memory)
     {
-        foreach (var chapter in memory.Chapters)
-            DeleteMediaFiles(mediaDir, $"{chapter.Id}-");
+        var memoryDir = MemoryDir(mediaDir, memory.Id);
+        if (Directory.Exists(memoryDir)) Directory.Delete(memoryDir, recursive: true);
     }
 
     // A reindex republishes every file the rebuilt Memory still needs, but a
@@ -258,7 +271,8 @@ public static class CatalogStore
     // knowing the rebuild will too.
     public static void PruneStaleMediaFiles(string mediaDir, RwMemory memory)
     {
-        if (!Directory.Exists(mediaDir)) return;
+        var memoryDir = MemoryDir(mediaDir, memory.Id);
+        if (!Directory.Exists(memoryDir)) return;
 
         var keep = memory.Chapters
             .SelectMany(c => c.MediaItems)
@@ -267,12 +281,9 @@ public static class CatalogStore
             .Concat(memory.CoverPhoto is null ? [] : [Path.GetFileName(memory.CoverPhoto)])
             .ToHashSet();
 
-        foreach (var chapter in memory.Chapters)
+        foreach (var file in Directory.GetFiles(memoryDir))
         {
-            foreach (var file in Directory.GetFiles(mediaDir, $"{chapter.Id}-*"))
-            {
-                if (!keep.Contains(Path.GetFileName(file))) File.Delete(file);
-            }
+            if (!keep.Contains(Path.GetFileName(file))) File.Delete(file);
         }
     }
 }

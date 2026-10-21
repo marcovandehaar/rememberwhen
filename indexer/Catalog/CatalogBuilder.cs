@@ -162,7 +162,7 @@ public static class CatalogBuilder
             .OrderBy(entry => entry.EffectiveCapturedAt)
             .ToList();
 
-        var mediaDir = Path.Combine(outputFolder, "media");
+        var mediaDir = Path.Combine(outputFolder, "media", memoryId); // one folder per Memory (#79)
         Directory.CreateDirectory(mediaDir);
 
         // Guaranteed to find one — the all-video check above already ruled
@@ -224,8 +224,8 @@ public static class CatalogBuilder
                 if (!TryWithRetry(() =>
                     {
                         var published = kind == MediaKind.Video
-                            ? PublishVideo(file, metadata, id, mediaDir, ffmpegPath, log)
-                            : PublishPhoto(file, metadata, id, mediaDir);
+                            ? PublishVideo(file, metadata, id, memoryId, mediaDir, ffmpegPath, log)
+                            : PublishPhoto(file, metadata, id, memoryId, mediaDir);
 
                         // A rotation the operator chose is applied to the fresh
                         // derivative, never accumulated on the previous one.
@@ -265,8 +265,8 @@ public static class CatalogBuilder
                 if (result.thumb is not null)
                 {
                     if (result.thumbIsNew) newlyWrittenFiles.Add(result.thumb);
-                    coverImage = $"media/{id}-thumb.jpg";
-                    coverPhoto = $"media/{id}-cover.jpg";
+                    coverImage = $"media/{memoryId}/{id}-thumb.jpg";
+                    coverPhoto = $"media/{memoryId}/{id}-cover.jpg";
                     if (result.photoIsNew) newlyWrittenFiles.Add(result.photo!);
                 }
 
@@ -362,13 +362,13 @@ public static class CatalogBuilder
         }
     }
 
-    private static (string MediaRef, double ShotDuration, bool IsNew) PublishPhoto(MediaFile file, MediaMetadata metadata, string id, string mediaDir)
+    private static (string MediaRef, double ShotDuration, bool IsNew) PublishPhoto(MediaFile file, MediaMetadata metadata, string id, string memoryId, string mediaDir)
     {
         var fileName = $"{id}-story.jpg";
         var path = Path.Combine(mediaDir, fileName);
         var isNew = !File.Exists(path);
         DerivativeGenerator.GenerateStoryDerivative(file.FullPath, metadata.Width, path);
-        return ($"media/{fileName}", DefaultShotDuration, isNew);
+        return ($"media/{memoryId}/{fileName}", DefaultShotDuration, isNew);
     }
 
     // Original 1080p file, unmodified — no poster frame (#25). The one
@@ -377,7 +377,7 @@ public static class CatalogBuilder
     // tone-mapped to SDR H.264 before publishing; everything else still
     // takes the cheap 1-on-1 copy.
     private static (string MediaRef, double ShotDuration, bool IsNew) PublishVideo(
-        MediaFile file, MediaMetadata metadata, string id, string mediaDir, string? ffmpegPath, TextWriter log)
+        MediaFile file, MediaMetadata metadata, string id, string memoryId, string mediaDir, string? ffmpegPath, TextWriter log)
     {
         if (HdrVideoDetector.IsHdr(file.FullPath))
         {
@@ -393,7 +393,7 @@ public static class CatalogBuilder
                 try
                 {
                     HdrTranscoder.ToneMapToSdr(ffmpegPath, file.FullPath, sdrPath);
-                    return ($"media/{sdrFileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, sdrIsNew);
+                    return ($"media/{memoryId}/{sdrFileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, sdrIsNew);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or IOException)
                 {
@@ -406,7 +406,7 @@ public static class CatalogBuilder
         var path = Path.Combine(mediaDir, fileName);
         var isNew = !File.Exists(path);
         File.Copy(file.FullPath, path, overwrite: true);
-        return ($"media/{fileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, isNew);
+        return ($"media/{memoryId}/{fileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, isNew);
     }
 
     public static string LogPathFor(string curationFolder, string memoryId) =>

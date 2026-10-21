@@ -56,11 +56,11 @@ public static class PendingPublish
             else if (instruction.Scope == MemoryScope && instruction.MemoryId is { } memoryId)
             {
                 var memory = catalog.Memories.FirstOrDefault(m => m.Id == memoryId);
-                if (memory is null || !Directory.Exists(mediaDir)) continue; // removed since logged — nothing left to publish
+                var memoryDir = CatalogStore.MemoryDir(mediaDir, memoryId);
+                if (memory is null || !Directory.Exists(memoryDir)) continue; // removed since logged — nothing left to publish
 
-                foreach (var chapter in memory.Chapters)
-                    foreach (var file in Directory.GetFiles(mediaDir, $"{chapter.Id}-*"))
-                        files.Add("media/" + Path.GetFileName(file));
+                foreach (var file in Directory.GetFiles(memoryDir))
+                    files.Add($"media/{memoryId}/{Path.GetFileName(file)}");
             }
         }
 

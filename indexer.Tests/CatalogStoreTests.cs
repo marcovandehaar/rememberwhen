@@ -136,11 +136,12 @@ public class CatalogStoreTests : IDisposable
     [Fact]
     public void PruneStaleMediaFiles_deletes_only_files_the_rebuilt_memory_no_longer_references()
     {
-        Directory.CreateDirectory(_root);
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-story.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-thumb.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "a-c1-0001-y-story.jpg"), ""); // orphaned: y no longer exists
-        File.WriteAllText(Path.Combine(_root, "b-c1-0000-z-story.jpg"), ""); // a different memory entirely
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        Directory.CreateDirectory(Path.Combine(_root, "b"));
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-story.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-thumb.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0001-y-story.jpg"), ""); // orphaned: y no longer exists
+        File.WriteAllText(Path.Combine(_root, "b", "b-c1-0000-z-story.jpg"), ""); // a different memory entirely
 
         var memory = Memory("a", chapters: [
             new RwChapter
@@ -152,8 +153,8 @@ public class CatalogStoreTests : IDisposable
 
         CatalogStore.PruneStaleMediaFiles(_root, memory);
 
-        var remaining = Directory.GetFiles(_root).Select(Path.GetFileName).ToHashSet();
-        Assert.Equal(new HashSet<string?> { "a-c1-0000-x-story.jpg", "a-c1-0000-x-thumb.jpg", "b-c1-0000-z-story.jpg" }, remaining);
+        var remaining = Directory.GetFiles(_root, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(_root, f).Replace('\\', '/')).ToHashSet();
+        Assert.Equal(new HashSet<string> { "a/a-c1-0000-x-story.jpg", "a/a-c1-0000-x-thumb.jpg", "b/b-c1-0000-z-story.jpg" }, remaining);
     }
 
     [Fact]
@@ -182,11 +183,11 @@ public class CatalogStoreTests : IDisposable
     [Fact]
     public void PruneStaleMediaFiles_keeps_the_current_mid_size_cover_and_deletes_an_old_one()
     {
-        Directory.CreateDirectory(_root);
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-story.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-thumb.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-cover.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "a-c1-0001-y-cover.jpg"), ""); // the cover before the operator changed it
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-story.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-thumb.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-cover.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0001-y-cover.jpg"), ""); // the cover before the operator changed it
 
         var memory = Memory("a", chapters: [
             new RwChapter { Id = "a-c1", MediaItems = [MediaItem("a-c1-0000-x", "media/a-c1-0000-x-story.jpg")] },
@@ -194,7 +195,7 @@ public class CatalogStoreTests : IDisposable
 
         CatalogStore.PruneStaleMediaFiles(_root, memory);
 
-        var remaining = Directory.GetFiles(_root).Select(Path.GetFileName).ToHashSet();
+        var remaining = Directory.GetFiles(Path.Combine(_root, "a")).Select(Path.GetFileName).ToHashSet();
         Assert.Equal(new HashSet<string?> { "a-c1-0000-x-story.jpg", "a-c1-0000-x-thumb.jpg", "a-c1-0000-x-cover.jpg" }, remaining);
     }
 
@@ -285,15 +286,33 @@ public class CatalogStoreTests : IDisposable
     }
 
     [Fact]
-    public void DeleteMediaFilesForMemory_derives_the_prefix_from_the_memorys_own_chapters()
+    public void ResolveMediaFile_serves_a_file_inside_a_memory_folder_and_refuses_traversal()
     {
-        Directory.CreateDirectory(_root);
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-story.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "b-c1-0000-z-story.jpg"), "");
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        File.WriteAllText(Path.Combine(_root, "a", "x-story.jpg"), "");
+        var secret = Path.Combine(Path.GetDirectoryName(_root)!, $"{Guid.NewGuid()}-secret.json");
+        File.WriteAllText(secret, "");
+
+        Assert.NotNull(CatalogStore.ResolveMediaFile(_root, "a/x-story.jpg"));
+        Assert.Null(CatalogStore.ResolveMediaFile(_root, "a/missing.jpg"));
+        Assert.Null(CatalogStore.ResolveMediaFile(_root, "../" + Path.GetFileName(secret)));
+        Assert.Null(CatalogStore.ResolveMediaFile(_root, "a/../../" + Path.GetFileName(secret)));
+        Assert.Null(CatalogStore.ResolveMediaFile(_root, secret));
+        File.Delete(secret);
+    }
+
+    [Fact]
+    public void DeleteMediaFilesForMemory_removes_the_memorys_whole_folder_and_nothing_else()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        Directory.CreateDirectory(Path.Combine(_root, "b"));
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-story.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "b", "b-c1-0000-z-story.jpg"), "");
 
         CatalogStore.DeleteMediaFilesForMemory(_root, Memory("a", chapters: [new RwChapter { Id = "a-c1" }]));
 
-        Assert.Equal(["b-c1-0000-z-story.jpg"], Directory.GetFiles(_root).Select(Path.GetFileName));
+        Assert.False(Directory.Exists(Path.Combine(_root, "a")));
+        Assert.Equal(["b-c1-0000-z-story.jpg"], Directory.GetFiles(Path.Combine(_root, "b")).Select(Path.GetFileName));
     }
 
     // A mistyped name (the year, say) is fixed without a rescan: only the

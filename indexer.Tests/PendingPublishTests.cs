@@ -70,19 +70,20 @@ public class PendingPublishTests : IDisposable
     }
 
     [Fact]
-    public void ResolveFiles_for_a_memory_instruction_returns_every_current_file_matching_its_chapters()
+    public void ResolveFiles_for_a_memory_instruction_returns_every_current_file_in_its_folder()
     {
-        Directory.CreateDirectory(_root);
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-story.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "a-c1-0000-x-thumb.jpg"), "");
-        File.WriteAllText(Path.Combine(_root, "b-c1-0000-z-story.jpg"), ""); // a different memory entirely
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        Directory.CreateDirectory(Path.Combine(_root, "b"));
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-story.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-thumb.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "b", "b-c1-0000-z-story.jpg"), ""); // a different memory entirely
 
         var catalog = new RwCatalog { Memories = [Memory("a", [new RwChapter { Id = "a-c1" }])] };
         var instructions = PendingPublish.AddMemory([], "a");
 
         var resolved = PendingPublish.ResolveFiles(instructions, catalog, _root);
 
-        Assert.Equal(["media/a-c1-0000-x-story.jpg", "media/a-c1-0000-x-thumb.jpg"], resolved);
+        Assert.Equal(["media/a/a-c1-0000-x-story.jpg", "media/a/a-c1-0000-x-thumb.jpg"], resolved);
     }
 
     // A folder removal logs a "memory" instruction for a Memory that's

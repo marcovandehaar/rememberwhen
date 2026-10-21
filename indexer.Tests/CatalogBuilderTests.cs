@@ -73,6 +73,25 @@ public class CatalogBuilderTests : IDisposable
         CatalogBuilder.AppendFailure(Path.Combine(blocker, "curation"), "zeeland-2016", new InvalidOperationException("boom"));
     }
     [Fact]
+    public void Publishes_every_derivative_into_the_memorys_own_media_folder()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 1, 9, 0, 0));
+
+        var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+        var memory = catalog.Memories[0];
+        var refs = memory.Chapters.SelectMany(c => c.MediaItems).Select(i => i.MediaRef)
+            .Append(memory.CoverImage).Append(memory.CoverPhoto!).ToList();
+        Assert.All(refs, r =>
+        {
+            Assert.StartsWith("media/zeeland-2016/", r);
+            Assert.True(File.Exists(Path.Combine(_outputDir, r)), r);
+        });
+        Assert.Empty(Directory.GetFiles(Path.Combine(_outputDir, "media"))); // nothing loose in the root
+    }
+
+    [Fact]
     public void Orders_media_items_chronologically_regardless_of_filename()
     {
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
@@ -109,7 +128,7 @@ public class CatalogBuilderTests : IDisposable
         var catalog = CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
         var memory = catalog.Memories[0];
-        Assert.Equal($"media/{memory.Chapters[0].MediaItems[0].Id}-cover.jpg", memory.CoverPhoto);
+        Assert.Equal($"media/zeeland-2016/{memory.Chapters[0].MediaItems[0].Id}-cover.jpg", memory.CoverPhoto);
         var published = PhotoMetadataReader.Read(Path.Combine(_outputDir, memory.CoverPhoto!));
         Assert.Equal(800, Math.Min(published.Width, published.Height));
         Assert.True(File.Exists(Path.Combine(_outputDir, memory.CoverImage)));
@@ -418,7 +437,7 @@ public class CatalogBuilderTests : IDisposable
                 onProgress: CancelAfterFirstItem, cancellationToken: cts.Token));
 
         var mediaDir = Path.Combine(_outputDir, "media");
-        Assert.Empty(Directory.GetFiles(mediaDir));
+        Assert.Empty(Directory.GetFiles(mediaDir, "*", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -430,7 +449,7 @@ public class CatalogBuilderTests : IDisposable
         var gazetteer = Gazetteer.Load(_gazetteerPath);
         CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", gazetteer, _outputDir, _curationDir, TextWriter.Null);
 
-        var mediaDir = Path.Combine(_outputDir, "media");
+        var mediaDir = Path.Combine(_outputDir, "media", "zeeland-2016");
         var publishedBefore = Directory.GetFiles(mediaDir).ToList();
         Assert.NotEmpty(publishedBefore); // a's story + thumb, b's story
 

@@ -60,12 +60,13 @@ public static class UiServer
 
         // Media derivatives live under the (configurable, arbitrary) output
         // folder, not under wwwroot, so they need their own route.
-        app.MapGet("/media/{fileName}", (HttpContext context, string fileName) =>
+        app.MapGet("/media/{**path}", (HttpContext context, string path) =>
         {
             var config = IndexerConfig.Load(configPath);
             var mediaDir = Path.Combine(ResolveRelativeToConfig(configPath, config.OutputFolder), "media");
-            var fullPath = Path.Combine(mediaDir, Path.GetFileName(fileName));
-            if (!File.Exists(fullPath)) return Results.NotFound();
+            // media/<memoryId>/<file> (#79): anything that resolves outside the media folder is refused.
+            var fullPath = CatalogStore.ResolveMediaFile(mediaDir, path);
+            if (fullPath is null) return Results.NotFound();
 
             // Results.File sets Last-Modified but no Cache-Control, so with
             // nothing else to go on the browser applies heuristic caching —
@@ -494,7 +495,7 @@ public static class UiServer
                     return result.NotFound ? Results.NotFound(new ErrorResponse(result.Error)) : Results.BadRequest(new ErrorResponse(result.Error));
 
                 CatalogStore.Save(result.Catalog, catalogPath);
-                CatalogStore.DeleteMediaFiles(Path.Combine(outputFolder, "media"), itemId);
+                CatalogStore.DeleteMediaFiles(CatalogStore.MemoryDir(Path.Combine(outputFolder, "media"), memoryId), itemId);
 
                 // Also remember it by source file, so a reindex keeps it removed (#66).
                 ItemEdits.TryRecord(ResolveRelativeToConfig(configPath, config.CurationFolder), memoryId, itemId, (curation, source) => curation.RemoveFile(source));
@@ -530,24 +531,27 @@ public static class UiServer
 
                 // From the item's own already-published derivative, same as the
                 // rest of this review screen — never the original source file.
+                var memoryDir = CatalogStore.MemoryDir(mediaDir, memory.Id);
                 var thumbFileName = $"{item.Id}-thumb.jpg";
                 var photoFileName = $"{item.Id}-cover.jpg";
+                var thumbRef = $"media/{memory.Id}/{thumbFileName}";
+                var photoRef = $"media/{memory.Id}/{photoFileName}";
                 var storyPath = Path.Combine(outputFolder, item.MediaRef);
-                DerivativeGenerator.GeneratePinThumbnail(storyPath, Path.Combine(mediaDir, thumbFileName));
-                DerivativeGenerator.GenerateCoverPhoto(storyPath, Path.Combine(mediaDir, photoFileName));
+                DerivativeGenerator.GeneratePinThumbnail(storyPath, Path.Combine(memoryDir, thumbFileName));
+                DerivativeGenerator.GenerateCoverPhoto(storyPath, Path.Combine(memoryDir, photoFileName));
 
                 var oldCoverPath = Path.Combine(outputFolder, memory.CoverImage);
                 var oldCoverPhotoPath = memory.CoverPhoto is null ? null : Path.Combine(outputFolder, memory.CoverPhoto);
-                var updated = CatalogStore.SetCover(catalog, memory.Id, $"media/{thumbFileName}", $"media/{photoFileName}");
+                var updated = CatalogStore.SetCover(catalog, memory.Id, thumbRef, photoRef);
                 CatalogStore.Save(updated, catalogPath);
                 ItemEdits.TryRecord(ResolveRelativeToConfig(configPath, config.CurationFolder), memory.Id, item.Id, (curation, source) => curation.SetCover(source));
 
                 var pendingPublishPath = PendingPublishPath(configPath);
-                var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), $"media/{thumbFileName}");
-                pending = PendingPublish.AddFile(pending, $"media/{photoFileName}");
+                var pending = PendingPublish.AddFile(PendingPublish.Load(pendingPublishPath), thumbRef);
+                pending = PendingPublish.AddFile(pending, photoRef);
                 PendingPublish.Save(pendingPublishPath, PendingPublish.AddFile(pending, "catalog.json"));
-                MediaVersion.Touch($"media/{thumbFileName}");
-                MediaVersion.Touch($"media/{photoFileName}");
+                MediaVersion.Touch(thumbRef);
+                MediaVersion.Touch(photoRef);
 
                 // Only after the replacement is confirmed on disk — same
                 // build-before-delete ordering as everywhere else here.
@@ -562,7 +566,6 @@ public static class UiServer
         {
             var config = IndexerConfig.Load(configPath);
             var outputFolder = ResolveRelativeToConfig(configPath, config.OutputFolder);
-            var mediaDir = Path.Combine(outputFolder, "media");
             var catalogPath = Path.Combine(outputFolder, "catalog.json");
 
             lock (CatalogStore.Gate) // #44
@@ -600,9 +603,8 @@ public static class UiServer
                 // same as when a cover is first set.
                 if (CatalogStore.IsCover(memory, item.Id))
                 {
-                    var thumbFileName = Path.GetFileName(memory.CoverImage);
                     DerivativeGenerator.GeneratePinThumbnail(
-                        Path.Combine(outputFolder, item.MediaRef), Path.Combine(mediaDir, thumbFileName));
+                        Path.Combine(outputFolder, item.MediaRef), Path.Combine(outputFolder, memory.CoverImage));
                     pending = PendingPublish.AddFile(pending, memory.CoverImage);
                     MediaVersion.Touch(memory.CoverImage);
 
