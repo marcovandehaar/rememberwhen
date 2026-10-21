@@ -181,7 +181,10 @@ foreach ($entry in $entries) {
   }
 
   $file = $entry.File
-  $relDir = Split-Path (Get-RelativePath $source.Root $file) -Parent
+  # Split-Path geeft backslashes terug; zonder terugzetten maakt mkdir op de NAS
+  # een map met een backslash in de naam ('media\benny') zodra het pad twee
+  # niveaus diep is (media/<memoryId>/, #79).
+  $relDir = (Split-Path (Get-RelativePath $source.Root $file) -Parent).Replace('\', '/')
   # scp -r's map-aanmaak op de remote bleek onbetrouwbaar zodra hij vlak na een
   # ssh-commando in hetzelfde script liep (zelfde bron/doel, kale herhaling
   # buiten het script om werkte wél) — dus geen scp -r op mappen, wel mkdir
