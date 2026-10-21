@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Indexer.Web;
@@ -33,6 +34,12 @@ public static class UiServer
         });
         builder.WebHost.UseUrls(url);
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
+        // Ctrl+C otherwise waits up to ~30s per stage for requests still in
+        // flight, and a page that has been open a while holds many (photo and
+        // video fetches over the NAS share). A local admin screen has nothing
+        // worth waiting for; an index run is cancelled and cleaned up on its own.
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(3));
 
         // Nominatim's usage policy asks for an identifying User-Agent — a
         // plain browser fetch can't set that header, so the "Suggest
