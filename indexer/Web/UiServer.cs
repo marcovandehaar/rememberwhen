@@ -236,6 +236,21 @@ public static class UiServer
 
             var run = runs.Start(state =>
             {
+                try
+                {
+                    RunIndex(state);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // The log file the UI points at must say why (#78); the run view gets the same detail.
+                    CatalogBuilder.AppendFailure(curationFolder, newMemoryId, ex);
+                    state.AppendLog(ex.ToString());
+                    throw;
+                }
+            });
+
+            void RunIndex(RunState state)
+            {
                 // Build before touching anything already published: if this
                 // throws (e.g. an unseeded Gazetteer entry), the previous
                 // successful publish for this Memory must survive untouched —
@@ -291,7 +306,7 @@ public static class UiServer
 
                 state.AppendLog($"Catalogus bijgewerkt: {catalogPath}");
                 state.MarkSucceeded(catalogPath);
-            });
+            }
 
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);
         });

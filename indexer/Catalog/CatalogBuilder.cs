@@ -409,6 +409,23 @@ public static class CatalogBuilder
         return ($"media/{fileName}", metadata.Duration?.TotalSeconds ?? DefaultShotDuration, isNew);
     }
 
+    public static string LogPathFor(string curationFolder, string memoryId) =>
+        Path.Combine(curationFolder, $"{memoryId}.log");
+
+    // An exception thrown out of Build (or out of the publish steps after it)
+    // never passes through Build's `log`, so the log file the UI points at
+    // would hold no trace of why the run failed. Appended after Build has
+    // closed its own writer; best-effort like the rest of the log.
+    public static void AppendFailure(string curationFolder, string memoryId, Exception ex)
+    {
+        try
+        {
+            Directory.CreateDirectory(curationFolder);
+            File.AppendAllText(LogPathFor(curationFolder, memoryId), $"Mislukt: {ex}{Environment.NewLine}");
+        }
+        catch (Exception writeEx) when (writeEx is IOException or UnauthorizedAccessException) { }
+    }
+
     // Best-effort: an unwritable Curation-folder is the exact scenario the
     // curation-file save below already guards the run against, so opening
     // its log file must not itself sink the run.
@@ -417,7 +434,7 @@ public static class CatalogBuilder
         try
         {
             Directory.CreateDirectory(curationFolder);
-            return new StreamWriter(Path.Combine(curationFolder, $"{memoryId}.log"), append: false) { AutoFlush = true };
+            return new StreamWriter(LogPathFor(curationFolder, memoryId), append: false) { AutoFlush = true };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

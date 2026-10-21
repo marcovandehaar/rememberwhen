@@ -46,6 +46,33 @@ public class CatalogBuilderTests : IDisposable
     }
 
     [Fact]
+    public void AppendFailure_leaves_the_exception_type_message_and_stack_in_the_memory_log()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, TextWriter.Null);
+
+        Exception thrown;
+        try { throw new InvalidOperationException("outer", new IOException("inner boom")); }
+        catch (Exception ex) { thrown = ex; }
+
+        CatalogBuilder.AppendFailure(_curationDir, "zeeland-2016", thrown);
+
+        var text = File.ReadAllText(CatalogBuilder.LogPathFor(_curationDir, "zeeland-2016"));
+        Assert.Contains("InvalidOperationException", text);
+        Assert.Contains("outer", text);
+        Assert.Contains("inner boom", text);
+        Assert.Contains(" at ", text);
+    }
+
+    [Fact]
+    public void AppendFailure_does_not_throw_when_the_log_location_is_unwritable()
+    {
+        var blocker = Path.Combine(Path.GetDirectoryName(_sourceDir)!, "not-a-folder");
+        File.WriteAllText(blocker, "x");
+
+        CatalogBuilder.AppendFailure(Path.Combine(blocker, "curation"), "zeeland-2016", new InvalidOperationException("boom"));
+    }
+    [Fact]
     public void Orders_media_items_chronologically_regardless_of_filename()
     {
         TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
