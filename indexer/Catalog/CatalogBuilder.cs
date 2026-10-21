@@ -429,12 +429,12 @@ public static class CatalogBuilder
     // Best-effort: an unwritable Curation-folder is the exact scenario the
     // curation-file save below already guards the run against, so opening
     // its log file must not itself sink the run.
-    private static StreamWriter? TryOpenLogFile(string curationFolder, string memoryId, TextWriter log)
+    private static TextWriter? TryOpenLogFile(string curationFolder, string memoryId, TextWriter log)
     {
         try
         {
             Directory.CreateDirectory(curationFolder);
-            return new StreamWriter(LogPathFor(curationFolder, memoryId), append: false) { AutoFlush = true };
+            return new BestEffortLogFile(new StreamWriter(LogPathFor(curationFolder, memoryId), append: false) { AutoFlush = true });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -460,4 +460,38 @@ public sealed class TeeTextWriter(TextWriter primary, TextWriter secondary) : Te
 
     public override void Write(char value) =>
         throw new NotSupportedException($"{nameof(TeeTextWriter)} only supports WriteLine(string).");
+}
+
+// The persisted log must never be able to end a run. Over a long read pass the
+// share's handle can go stale, and the flush when the writer is closed then
+// threw — replacing whatever the run itself had ended with (a real Bruiloft
+// run: "An unexpected network error occurred", the actual cause lost). Once a
+// write fails the file is dropped and the run carries on with its other log.
+public sealed class BestEffortLogFile(TextWriter inner) : TextWriter
+{
+    private bool _broken;
+
+    public bool IsBroken => _broken;
+
+    public override System.Text.Encoding Encoding => inner.Encoding;
+
+    public override void WriteLine(string? value)
+    {
+        if (_broken) return;
+        try { inner.WriteLine(value); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _broken = true; }
+    }
+
+    public override void Write(char value) =>
+        throw new NotSupportedException($"{nameof(BestEffortLogFile)} only supports WriteLine(string).");
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            try { inner.Dispose(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _broken = true; }
+        }
+        base.Dispose(disposing);
+    }
 }

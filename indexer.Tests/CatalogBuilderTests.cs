@@ -64,6 +64,26 @@ public class CatalogBuilderTests : IDisposable
         Assert.Contains(" at ", text);
     }
 
+    // A real run's log file broke on its way to the NAS share and that error replaced the run's own.
+    [Fact]
+    public void A_log_file_that_breaks_never_throws_on_write_or_close()
+    {
+        var log = new BestEffortLogFile(new ThrowingWriter());
+
+        log.WriteLine("een");
+        log.WriteLine("twee");
+        log.Dispose();
+
+        Assert.True(log.IsBroken);
+    }
+
+    private sealed class ThrowingWriter : TextWriter
+    {
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+        public override void WriteLine(string? value) => throw new IOException("An unexpected network error occurred.");
+        protected override void Dispose(bool disposing) => throw new IOException("An unexpected network error occurred.");
+    }
+
     [Fact]
     public void AppendFailure_does_not_throw_when_the_log_location_is_unwritable()
     {
