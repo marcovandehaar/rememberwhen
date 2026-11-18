@@ -30,6 +30,9 @@ test('the back button of a Story opened from the globe says it goes back to the 
 test('the Story of a Memory that is not a Trip is titled with its name, and its date as the subtitle', () => {
   render(<Story memory={memory} from="timeline" onOpenItem={() => {}} onBack={() => {}} />)
 
-  expect(screen.getByText('Onze nieuwe hond')).toBeInTheDocument()
+  // The title style is picked at random, and one of them puts each letter in its own span,
+  // so match the name on an element's whole text rather than on a single text node.
+  const showsName = (_: string, el: Element | null) => el?.textContent?.replace(/\s+/g, ' ') === 'Onze nieuwe hond'
+  expect(screen.getByText(showsName)).toBeInTheDocument()
   expect(screen.getByText('14 mei 2023')).toBeInTheDocument()
 })
