@@ -227,6 +227,27 @@ public class CatalogStoreTests : IDisposable
     }
 
     [Fact]
+    public void RemoveMediaItem_keeps_the_chapter_in_its_place_in_the_story()
+    {
+        // A real trip had its middle Chapter end up last after an item was removed
+        // from it, so its last day played right after its first evening.
+        var memory = Memory("a", chapters: [
+            new RwChapter { Id = "a-c1", MediaItems = [MediaItem("a-c1-0000-x", "media/a-c1-0000-x-story.jpg")] },
+            new RwChapter
+            {
+                Id = "a-c2",
+                MediaItems = [MediaItem("a-c2-0001-y", "media/a-c2-0001-y-story.jpg"), MediaItem("a-c2-0002-z", "media/a-c2-0002-z-story.jpg")],
+            },
+            new RwChapter { Id = "a-c3", MediaItems = [MediaItem("a-c3-0003-w", "media/a-c3-0003-w-story.jpg")] },
+        ], coverImage: "media/a-c1-0000-x-thumb.jpg");
+
+        var result = CatalogStore.RemoveMediaItem(new RwCatalog { Memories = [memory] }, "a", "a-c2-0001-y");
+
+        Assert.Null(result.Error);
+        Assert.Equal(["a-c1", "a-c2", "a-c3"], Assert.Single(result.Catalog.Memories).Chapters.Select(c => c.Id));
+    }
+
+    [Fact]
     public void RemoveMediaItem_refuses_to_remove_the_cover()
     {
         var catalog = new RwCatalog { Memories = [TwoItemMemory()] };

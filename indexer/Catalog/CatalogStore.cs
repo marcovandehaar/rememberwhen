@@ -88,7 +88,7 @@ public static class CatalogStore
             Date = memory.Date,
             CoverImage = memory.CoverImage,
             CoverPhoto = memory.CoverPhoto,
-            Chapters = [.. memory.Chapters.Where(c => c.Id != chapter.Id), updatedChapter],
+            Chapters = [.. memory.Chapters.Select(c => c.Id == chapter.Id ? updatedChapter : c)],
         };
 
         return new(Replace(catalog, updatedMemory), null);
