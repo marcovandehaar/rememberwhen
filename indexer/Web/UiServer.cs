@@ -254,7 +254,7 @@ public static class UiServer
                     state.AppendLog(ex.ToString());
                     throw;
                 }
-            });
+            }, RunKinds.Index, memoryId: target.MemoryId);
 
             void RunIndex(RunState state)
             {
@@ -446,6 +446,13 @@ public static class UiServer
 
             return Results.Json(new { runId = run.Id }, JsonOptions.Default);
         });
+
+        // Every run since the indexer started, newest first, without the logs
+        // (GET /api/runs/{id} has those): which runs exist, for which Memory,
+        // and whether each is still going, stuck (idleSeconds) or failed (error).
+        app.MapGet("/api/runs", () => Results.Json(
+            runs.All().Select(r => new RunSummary(r.Id, r.Kind, r.MemoryId, r.Status, r.StartedAt, r.Error, r.ProgressCurrent, r.ProgressTotal, r.IdleSeconds)),
+            JsonOptions.Default));
 
         app.MapGet("/api/runs/{id}", (string id) =>
         {
@@ -1135,6 +1142,10 @@ public sealed record TestConnectionResult(string Message);
 public sealed record GazetteerView(IReadOnlyDictionary<string, Coordinate> Entries);
 
 public sealed record PendingPublishView(bool HasPending);
+
+public sealed record RunSummary(
+    string Id, string Kind, string? MemoryId, RunStatus Status, DateTimeOffset StartedAt, string? Error,
+    int? ProgressCurrent, int? ProgressTotal, int IdleSeconds);
 
 public sealed record RunView(
     RunStatus Status, List<string> Log, string? Error, string? CatalogPath,

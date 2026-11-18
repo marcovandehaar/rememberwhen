@@ -31,6 +31,26 @@ public class RunTrackerTests
     }
 
     [Fact]
+    public void All_lists_every_run_newest_first_with_its_memory_and_outcome()
+    {
+        var tracker = new RunTracker();
+        var failed = tracker.Start(_ => throw new KeyNotFoundException("'Drammen' staat niet in de Gazetteer."), RunKinds.Index, memoryId: "noorwegen");
+        SpinWait.SpinUntil(() => failed.Status != RunStatus.Running, TimeSpan.FromSeconds(5));
+        using var release = new ManualResetEventSlim();
+        var deploy = tracker.Start(_ => release.Wait(TimeSpan.FromSeconds(5)), RunKinds.Deploy);
+
+        var all = tracker.All();
+
+        Assert.Equal([deploy, failed], all);
+        Assert.Equal("noorwegen", failed.MemoryId);
+        Assert.Equal(RunStatus.Failed, failed.Status);
+        Assert.Null(deploy.MemoryId);
+        Assert.True(deploy.StartedAt >= failed.StartedAt);
+
+        release.Set();
+    }
+
+    [Fact]
     public void IdleSeconds_is_zero_once_the_run_is_no_longer_running()
     {
         var run = new RunState();

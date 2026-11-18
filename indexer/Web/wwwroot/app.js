@@ -1411,6 +1411,14 @@ async function pollDeploy() {
 // A reloaded page doesn't know its own run ids, but the publish keeps going
 // server-side — pick it back up so the indicator is there straight away.
 api('GET', '/api/deploy/active').then(({ runId }) => { if (runId && !activeDeploy) beginDeploy(runId); }).catch(() => {});
+// Same for an index run: its Memory shows the running view again when selected.
+api('GET', '/api/runs').then((runs) => {
+  const running = runs.find((r) => r.kind === 'index' && r.status === 'running');
+  if (!running || activeRun) return;
+  activeRun = { memoryId: running.memoryId, runId: running.id, status: 'running', log: [], progressCurrent: running.progressCurrent, progressTotal: running.progressTotal };
+  renderDetail();
+  pollRun();
+}).catch(() => {});
 
 loadMemories();
 // Eager, independent of the settings sheet: the index-folder flow's own

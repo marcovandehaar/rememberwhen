@@ -21,6 +21,11 @@ public sealed class RunState
 
     public string Id { get; } = Guid.NewGuid().ToString("n");
     public string Kind { get; init; } = RunKinds.Index;
+    // The Memory an index run is for, as the UI knows it (its config id); null for a publish.
+    public string? MemoryId { get; init; }
+    public DateTimeOffset StartedAt { get; } = DateTimeOffset.Now;
+    private static long _nextSequence;
+    internal long Sequence { get; } = Interlocked.Increment(ref _nextSequence); // orders runs started within one clock tick
     public RunStatus Status { get; private set; } = RunStatus.Running;
 
     // Last time the run logged a line or moved its progress. A run that is
@@ -121,9 +126,9 @@ public sealed class RunTracker
 {
     private readonly ConcurrentDictionary<string, RunState> _runs = new();
 
-    public RunState Start(Action<RunState> body, string kind = RunKinds.Index)
+    public RunState Start(Action<RunState> body, string kind = RunKinds.Index, string? memoryId = null)
     {
-        var run = new RunState { Kind = kind };
+        var run = new RunState { Kind = kind, MemoryId = memoryId };
         _runs[run.Id] = run;
 
         Task.Run(() =>
@@ -146,6 +151,10 @@ public sealed class RunTracker
     }
 
     public RunState? Get(string id) => _runs.GetValueOrDefault(id);
+
+    // Every run since the indexer started, newest first: what was tried, for
+    // which Memory, and how it ended — without having to know a run id first.
+    public IReadOnlyList<RunState> All() => [.. _runs.Values.OrderByDescending(r => r.Sequence)];
 
     // What a freshly loaded page asks for, since the browser forgets its own
     // run ids on reload but the run itself keeps going server-side.
