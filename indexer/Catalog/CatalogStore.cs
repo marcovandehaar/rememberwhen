@@ -269,10 +269,14 @@ public static class CatalogStore
     // exist now). Call this only after a rebuild has succeeded — pruning
     // first and building second would delete a working publish before
     // knowing the rebuild will too.
-    public static void PruneStaleMediaFiles(string mediaDir, RwMemory memory)
+    //
+    // Best-effort: a stale file that is still open somewhere (a video playing in
+    // a browser) is left for the next run and returned, not thrown — this runs
+    // before the rebuilt catalogue is saved, so throwing discarded the whole run.
+    public static IReadOnlyList<string> PruneStaleMediaFiles(string mediaDir, RwMemory memory)
     {
         var memoryDir = MemoryDir(mediaDir, memory.Id);
-        if (!Directory.Exists(memoryDir)) return;
+        if (!Directory.Exists(memoryDir)) return [];
 
         var keep = memory.Chapters
             .SelectMany(c => c.MediaItems)
@@ -281,9 +285,20 @@ public static class CatalogStore
             .Concat(memory.CoverPhoto is null ? [] : [Path.GetFileName(memory.CoverPhoto)])
             .ToHashSet();
 
+        var notDeleted = new List<string>();
         foreach (var file in Directory.GetFiles(memoryDir))
         {
-            if (!keep.Contains(Path.GetFileName(file))) File.Delete(file);
+            if (keep.Contains(Path.GetFileName(file))) continue;
+            try
+            {
+                File.Delete(file);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                notDeleted.Add(Path.GetFileName(file));
+            }
         }
+
+        return notDeleted;
     }
 }

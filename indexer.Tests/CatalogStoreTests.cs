@@ -181,6 +181,29 @@ public class CatalogStoreTests : IDisposable
     }
 
     [Fact]
+    public void PruneStaleMediaFiles_skips_a_stale_file_that_is_in_use_and_still_prunes_the_rest()
+    {
+        // A video still open in a browser can't be deleted; that used to throw before
+        // the rebuilt catalogue was saved, throwing away a whole reindex.
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0000-x-story.jpg"), "");
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0001-y.mp4"), "");     // stale, and in use
+        File.WriteAllText(Path.Combine(_root, "a", "a-c1-0002-z-story.jpg"), ""); // stale
+
+        var memory = Memory("a", chapters: [
+            new RwChapter { Id = "a-c1", MediaItems = [MediaItem("a-c1-0000-x", "media/a-c1-0000-x-story.jpg")] },
+        ], coverImage: "media/a-c1-0000-x-story.jpg");
+
+        IReadOnlyList<string> notDeleted;
+        using (new FileStream(Path.Combine(_root, "a", "a-c1-0001-y.mp4"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            notDeleted = CatalogStore.PruneStaleMediaFiles(_root, memory);
+
+        Assert.Equal(["a-c1-0001-y.mp4"], notDeleted);
+        var remaining = Directory.GetFiles(Path.Combine(_root, "a")).Select(Path.GetFileName).ToHashSet();
+        Assert.Equal(new HashSet<string?> { "a-c1-0000-x-story.jpg", "a-c1-0001-y.mp4" }, remaining);
+    }
+
+    [Fact]
     public void PruneStaleMediaFiles_keeps_the_current_mid_size_cover_and_deletes_an_old_one()
     {
         Directory.CreateDirectory(Path.Combine(_root, "a"));

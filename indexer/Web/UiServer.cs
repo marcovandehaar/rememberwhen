@@ -287,7 +287,9 @@ public static class UiServer
                         existingCatalog = CatalogStore.RemoveMemory(existingCatalog, existing.MemoryId);
                         if (oldMemory is not null) CatalogStore.DeleteMediaFilesForMemory(mediaDir, oldMemory);
                     }
-                    CatalogStore.PruneStaleMediaFiles(mediaDir, newMemory);
+                    var notPruned = CatalogStore.PruneStaleMediaFiles(mediaDir, newMemory);
+                    if (notPruned.Count > 0)
+                        log.WriteLine($"{notPruned.Count} oud(e) bestand(en) in gebruik, niet opgeruimd (volgende run opnieuw): {string.Join(", ", notPruned)}");
 
                     var merged = CatalogStore.Replace(existingCatalog, newMemory);
                     CatalogStore.Save(merged, catalogPath);
