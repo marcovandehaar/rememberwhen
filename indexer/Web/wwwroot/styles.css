@@ -243,14 +243,34 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Drawn by hand, not left to the browser: with `border: none` Chromium drops the
+   native look and paints a bar with no value as completely full, so a run that
+   had not read its first file yet looked finished. */
 #run-progress {
+  appearance: none;
   width: 100%;
   height: 6px;
   border: none;
   border-radius: 999px;
   overflow: hidden;
-  accent-color: var(--accent);
+  background: var(--fill);
   margin-top: 14px;
+}
+#run-progress::-webkit-progress-bar { background: var(--fill); }
+#run-progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; transition: width 0.2s ease; }
+#run-progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+/* No value yet: a short segment sweeps across the track. */
+#run-progress:indeterminate,
+#run-progress:indeterminate::-webkit-progress-bar {
+  background: linear-gradient(90deg, var(--accent), var(--accent)) no-repeat var(--fill);
+  background-size: 28% 100%;
+  animation: progress-sweep 1.1s ease-in-out infinite;
+}
+#run-progress:indeterminate::-webkit-progress-value { background: transparent; }
+#run-progress:indeterminate::-moz-progress-bar { background: transparent; }
+@keyframes progress-sweep {
+  from { background-position: -40% 0; }
+  to { background-position: 140% 0; }
 }
 
 .log-box {
