@@ -61,15 +61,20 @@ public static class CatalogBuilder
         using var logFileWriter = TryOpenLogFile(curationFolder, memoryId, log);
         if (logFileWriter is not null) log = new TeeTextWriter(log, logFileWriter);
 
+        // Scanning a NAS folder can take a while before the first progress tick;
+        // without these two lines the run view showed nothing at all until then.
+        var where = string.Join(", ", sourceFolders);
+        log.WriteLine($"Indexeren gestart: {where}");
+
         // Cheap and fast, so it goes first: an unseeded Destination fails here
         // instead of after the slow read-and-publish pass over every file,
         // which can take minutes over a NAS share (#38).
         var destinationCoordinate = destinationName is null ? (Coordinate?)null : gazetteer.Lookup(destinationName);
 
-        var where = string.Join(", ", sourceFolders);
         var files = SourceFolderReader.ReadAll(sourceFolders, log);
         if (files.Count == 0)
             throw new InvalidOperationException($"Geen ondersteunde media gevonden in {where}.");
+        log.WriteLine($"{files.Count} bestand(en) gevonden, metadata lezen…");
 
         // The operator's edits (#66): removed photos, the chosen cover and
         // rotations, keyed by source file so they survive a reindex and the

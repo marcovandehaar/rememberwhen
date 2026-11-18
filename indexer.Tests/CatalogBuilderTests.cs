@@ -544,6 +544,21 @@ public class CatalogBuilderTests : IDisposable
         Assert.DoesNotContain("Overgeslagen", log.ToString());
     }
 
+    [Fact]
+    public void Build_says_it_started_and_how_many_files_it_found_before_reading_any_of_them()
+    {
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "a.jpg"), 800, 600, new DateTime(2016, 7, 1, 8, 0, 0));
+        TestImages.WriteJpeg(Path.Combine(_sourceDir, "b.jpg"), 800, 600, new DateTime(2016, 7, 2, 9, 0, 0));
+
+        var log = new StringWriter();
+        CatalogBuilder.Build(_sourceDir, "Zeeland 2016", "Zeeland", Gazetteer.Load(_gazetteerPath), _outputDir, _curationDir, log);
+
+        var lines = log.ToString().Split(Environment.NewLine);
+        Assert.StartsWith("Indexeren gestart", lines[0]);
+        Assert.Contains(_sourceDir, lines[0]);
+        Assert.StartsWith("2 bestand(en) gevonden", lines[1]);
+    }
+
     private string MakeFolder(string name)
     {
         var path = Path.Combine(Path.GetDirectoryName(_sourceDir)!, name);

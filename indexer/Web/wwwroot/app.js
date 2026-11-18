@@ -12,6 +12,7 @@ let selectedId = null;
 let activeRun = null; // { memoryId, runId, status, log, progressCurrent, progressTotal }
 const attempts = {}; // memoryId -> { error, cancelled } — what the last run of a Memory ended in
 const lastNotices = {}; // memoryId -> string[] — non-fatal log lines from the most recent successful run this session
+const RUN_PROGRESS_LINE = /^(Indexeren gestart: |\d+ bestand\(en\) gevonden, )/; // see CatalogBuilder.Build
 
 async function api(method, path, body) {
   const response = await fetch(path, {
@@ -861,9 +862,9 @@ function updateRunningDetail() {
 
 function renderRunningDetail(detail, m) {
   const { progressCurrent, progressTotal, cancelling } = activeRun;
-  // No value/max attribute at all (rather than 0/0) renders as the browser's
-  // built-in indeterminate/striped animation — the honest state before the
-  // first progress callback has landed, with no extra code needed for it.
+  // No value/max attribute at all (rather than 0/0) makes it :indeterminate,
+  // which styles.css draws as a sweeping segment — the honest state before
+  // the first progress callback has landed.
   const hasProgress = progressTotal != null && progressTotal > 0;
   detail.innerHTML = `
     <header class="mem-head">
@@ -919,9 +920,10 @@ async function pollRun() {
       attempts[run.memoryId] = { cancelled: true };
     } else {
       delete attempts[run.memoryId];
-      // The final "Catalogus bijgewerkt: ..." line just confirms success; only
-      // earlier lines (skipped files, timestamp fallbacks, ...) are worth surfacing.
-      lastNotices[run.memoryId] = state.log.slice(0, -1);
+      // The final "Catalogus bijgewerkt: ..." line just confirms success, and the
+      // start/scan lines (CatalogBuilder.Build) only mark progress; the rest
+      // (skipped files, timestamp fallbacks, ...) is worth surfacing.
+      lastNotices[run.memoryId] = state.log.slice(0, -1).filter((line) => !RUN_PROGRESS_LINE.test(line));
     }
 
     await loadMemories();
