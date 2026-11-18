@@ -95,7 +95,11 @@ public static class UiServer
             // for that on every thumbnail is cheap enough not to matter.
             context.Response.Headers.CacheControl = "no-store";
             ContentTypes.TryGetContentType(fullPath, out var contentType);
-            return Results.File(fullPath, contentType ?? "application/octet-stream");
+            // Ranges let a <video> fetch only the bytes it needs. Without them the
+            // browser streams the whole clip and parks the stalled stream on an open
+            // connection; a grid of videos took all six of Chrome's connections to
+            // this server, so a run's progress polls waited until the run was over.
+            return Results.File(fullPath, contentType ?? "application/octet-stream", enableRangeProcessing: true);
         });
 
         app.MapGet("/api/browse", (string? path) =>
